@@ -1,0 +1,28 @@
+ipse
+.classpath
+.project
+.settings/
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Intellij
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Mac
+.DS_STORE
+
+# Maven
+target/
+
+# obj files
+*~
+*.class
+
+# Git
+*.bak

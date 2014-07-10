@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0">
+
+    <bean
+            id="localFileSystem"
+            class="com.cooper.osgi.io.local.LocalFileSystem"
+            >
+    </bean>
+
+    <service
+            ref="localFileSystem"
+            interface="com.cooper.osgi.io.ILocalFileSystem"
+            >
+    </service>
+</blueprint>
