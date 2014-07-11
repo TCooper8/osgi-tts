@@ -70,9 +70,8 @@ class TtsProxyServlet(
 
 	private[this] val watcher = configService(
 		this,
-		props,
-		timeout
-	)
+		props
+	).toOption
 	if (watcher.isEmpty)
 		log.error(s"$this watcher is undefined, problem with ${watcher.getClass}")
 
@@ -201,7 +200,7 @@ class TtsProxyServlet(
 									resp.sendError(500)
 							}
 						} match {
-							case Failure(err) => log.error("", err)
+							case Failure(err) => log.error(err.getMessage())
 							case Success(_) => ()
 						}
 				}

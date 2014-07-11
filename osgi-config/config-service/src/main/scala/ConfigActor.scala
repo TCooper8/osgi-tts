@@ -1,6 +1,9 @@
 package com.cooper.osgi.config.service
 
-import akka.actor.{PoisonPill, ReceiveTimeout, Actor}
+import Constants._
+
+import akka.actor.{ActorRef, PoisonPill, ReceiveTimeout, Actor}
+import akka.pattern.ask
 import com.cooper.osgi.config.IConfigurable
 import scala.concurrent.duration.FiniteDuration
 import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
@@ -10,8 +13,9 @@ import org.apache.zookeeper.data.Stat
 import com.cooper.osgi.config.service.ConfigWatcherEvents.{PutDataMsg, ProcessMsg, ExistsMsg, ProcessResultMsg}
 import org.apache.zookeeper.Watcher.Event.KeeperState
 import org.apache.zookeeper.KeeperException.Code
+import scala.util.{Success, Try, Failure}
 import scala.collection.JavaConversions._
-import scala.util.Try
+import scala.concurrent.Await
 
 /**
  * This acts as a ZooKeeper watch implemtation.
@@ -21,18 +25,20 @@ import scala.util.Try
  * @param tickTime The config refresh time.
  */
 class ConfigActor(
-		keeper: ZooKeeper,
+		keeperPool: ActorRef,
   		listener: ConfigProxy,
 		config: IConfigurable,
 		defaultData: Iterable[(String, Array[Byte])],
 		tickTime: FiniteDuration
 	) extends Actor {
 
-	private[this] val log = Logging(this.getClass)
+	private[this] val log = Logging(this)
 	private[this] val track = StatTracker(Constants.trackerKey)
 	private[this] val maybe = MaybeLog(log, track)
 
 	private[this] val encoding = "UTF-8"
+
+	private[this] var keeper: ZooKeeper = getKeeper
 
 	/**
 	 * The ZooKeeper to listen to.
@@ -89,6 +95,21 @@ class ConfigActor(
 		config.configUpdate(newProps)
 	}
 
+	private[this] def getKeeper: ZooKeeper = {
+		Try {
+			val task = keeperPool ? ZooKeeperPool.GetKeeper(config.configHost)
+			Await.result(task, futureTimeout) match {
+				case ZooKeeperPool.GetKeeperReply(reply) => reply
+				case _ => Failure(null)
+			}
+		}.flatten match {
+			case Success(keeper) => keeper
+			case Failure(error) =>
+				log.error("", error)
+				null
+		}
+	}
+
 	/**
 	 * Represents the current nodes' stats.
 	 */
@@ -106,9 +127,14 @@ class ConfigActor(
 	 */
 	private[this] def toKey (node: String) = node.split('/').last
 
-	private[this] def getStat(node: String) = maybe{
-		Option(keeper.exists(node, true))
-	}.flatten
+	private[this] def getStat(node: String) = {
+		Try {
+			Option(keeper.exists(node, true))
+		} match {
+			case Success(stat) => stat
+			case Failure(err) => log.error(s"Failed to retrieve $node", err); None
+		}
+	}
 
 	private[this] def getPropStats() =
 		keeper.getChildren(config.configNode, true).toList.flatMap {
@@ -188,7 +214,8 @@ class ConfigActor(
 				case KeeperState.SyncConnected => ()
 
 				case KeeperState.Expired =>
-					listener.closing(KeeperException.Code.SESSIONEXPIRED.intValue())
+					this.keeper = getKeeper
+					//listener.closing(KeeperException.Code.SESSIONEXPIRED.intValue())
 
 				case _ => ()
 			}

@@ -32,9 +32,8 @@ class StaticTtsEngine(
 
 	private[this] val watcher = watcherService(
 		this,
-		Nil,
-		10 seconds
-	)
+		Nil
+	).toOption
 	if (watcher.isEmpty)
 		log.error(s"$this watcher is undefined, problem with service IConfigService.")
 

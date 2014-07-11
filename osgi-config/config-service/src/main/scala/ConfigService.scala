@@ -2,7 +2,7 @@ package com.cooper.osgi.config.service
 
 import com.cooper.osgi.config.{IConfigWatcher, IConfigurable, IConfigService}
 import scala.concurrent.duration.FiniteDuration
-import akka.actor.{PoisonPill, ActorSystem}
+import akka.actor.{Props, PoisonPill, ActorSystem}
 import com.typesafe.config.{ConfigFactory, Config}
 import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import scala.collection.mutable
@@ -21,6 +21,10 @@ class ConfigService extends IConfigService {
 	private[this] val connTimeout = 2 seconds
 
 	private[this] val actorSystem = getActorSystem
+
+	private[this] val keeperPool = actorSystem.actorOf(Props(
+		classOf[ZooKeeperPool]
+	))
 
 	private[this] val keepers: mutable.Map[String, ZooKeeper] =
 		new mutable.HashMap[String, ZooKeeper]()
@@ -94,16 +98,22 @@ class ConfigService extends IConfigService {
 	 * Attempts to create a new IConfigWatcher.
 	 * @param config The configurable object.
 	 * @param defaultData Some default data to use if none exists.
-	 * @param tickTime The configuration refresh time.
-	 * @return Returns Some(watcher) or None in the event of failure.
+	 * @return Returns Success(watcher) or Failure(error) in the event of failure.
 	 */
 	def apply(
 		config: IConfigurable,
-		defaultData: Iterable[(String, String)],
-		tickTime: FiniteDuration
-			): Option[IConfigWatcher] = maybe{
+		defaultData: Iterable[(String, String)]
+			): Try[IConfigWatcher] = Try{
 
-		getKeeper(config.configHost, tickTime) map {
+		ConfigProxy(
+			keeperPool,
+			actorSystem,
+			config,
+			defaultData,
+			Constants.keeperTickTime
+		)
+
+		/*getKeeper(config.configHost, tickTime) map {
 			keeper =>
 				new ConfigProxy(
 					keeper,
@@ -112,8 +122,8 @@ class ConfigService extends IConfigService {
 					defaultData,
 					tickTime
 				)
-		}
-	}.flatten
+		}*/
+	}
 
 	def dispose() {
 		actorSystem.actorSelection("*") ! PoisonPill

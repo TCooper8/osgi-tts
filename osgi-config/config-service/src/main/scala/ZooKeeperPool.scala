@@ -4,7 +4,7 @@ package com.cooper.osgi.config.service
 	Local package imports.
   */
 
-import Constants.{askTimeout, keeperTickTime}
+import Constants.{futureTimeout, keeperTickTime}
 
 import scala.collection.mutable
 import org.apache.zookeeper.ZooKeeper
@@ -13,7 +13,14 @@ import scala.concurrent.{Await, Future, ExecutionContext}
 import ExecutionContext.Implicits.global
 import scala.util.{Failure, Success, Try}
 import org.apache.zookeeper.ZooKeeper.{States => KeeperState}
-import com.cooper.osgi.config.ConfigZooKeeperAuthFailed
+import com.cooper.osgi.config.{ConfigException, ConfigZooKeeperAuthFailed}
+
+object ZooKeeperPool {
+	trait Msg
+	trait Reply
+	case class GetKeeper(host:String) extends Msg
+	case class GetKeeperReply(reply: Try[ZooKeeper]) extends Reply
+}
 
 class ZooKeeperPool() extends Actor {
 
@@ -31,7 +38,7 @@ class ZooKeeperPool() extends Actor {
 		}
 
 		handleState(
-			Await.result(task, askTimeout),
+			Await.result(task, futureTimeout),
 			host
 		)
 	}.flatten
@@ -51,6 +58,11 @@ class ZooKeeperPool() extends Actor {
 
 			case KeeperState.CONNECTING =>
 				awaitConnection(keeper, host)
+
+			case _ =>
+				Failure {
+					ConfigException(message = s"Unhandled state occurred for ZooKeeper@$host")
+				}
 		}
 	}
 
@@ -85,11 +97,11 @@ class ZooKeeperPool() extends Actor {
 	}
 
 	def receive = {
-		case events.GetKeeper(host) =>
+		case ZooKeeperPool.GetKeeper(host) =>
 			val task = Future{getKeeper(host)}
 			Try {
-				val out = Await.result(task, askTimeout)
-				sender ! events.GetKeeperReply(out)
+				val out = Await.result(task, futureTimeout)
+				sender ! ZooKeeperPool.GetKeeperReply(out)
 			}
 
 		case ReceiveTimeout =>

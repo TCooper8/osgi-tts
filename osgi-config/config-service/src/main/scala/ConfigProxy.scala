@@ -1,6 +1,6 @@
 package com.cooper.osgi.config.service
 
-import akka.actor.{PoisonPill, Props, ActorSystem}
+import akka.actor._
 
 import com.cooper.osgi.config.{IConfigurable, IConfigWatcher}
 import org.apache.zookeeper.AsyncCallback.StatCallback
@@ -10,6 +10,11 @@ import org.apache.zookeeper.data.Stat
 import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import com.cooper.osgi.config.service.ConfigWatcherEvents.{PutDataMsg, ExistsMsg, ProcessResultMsg, ProcessMsg}
 import scala.util.Try
+import com.cooper.osgi.config.service.ConfigWatcherEvents.ProcessMsg
+import com.cooper.osgi.config.service.ConfigWatcherEvents.ExistsMsg
+import com.cooper.osgi.utils.MaybeLog
+import com.cooper.osgi.config.service.ConfigWatcherEvents.PutDataMsg
+import com.cooper.osgi.config.service.ConfigWatcherEvents.ProcessResultMsg
 
 /**
  * This is a proxy class for a ConfigActor.
@@ -18,8 +23,8 @@ import scala.util.Try
  * @param defaultData The default data to load into configuration.
  * @param tickTime The config refresh time.
  */
-class ConfigProxy(
-		keeper: ZooKeeper,
+case class ConfigProxy(
+		keeperPool: ActorRef,
 		actorSystem: ActorSystem,
 		config: IConfigurable,
 		defaultData: Iterable[(String, String)],
@@ -40,7 +45,7 @@ class ConfigProxy(
 
 	private[this] val actor = actorSystem.actorOf(Props(
 		classOf[ConfigActor],
-		keeper,
+		keeperPool,
 		this,
 		config,
 		defaultData map { case (k, v) => (k -> v.getBytes()) },

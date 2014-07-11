@@ -4,10 +4,9 @@ import akka.actor.{PoisonPill, Terminated, Props, Actor}
 import com.cooper.osgi.speech.service.Constants._
 import scala.util.Try
 import com.cooper.osgi.utils.Logging
-import akka.routing.{SmallestMailboxRoutingLogic, Router, ActorRefRoutee}
+import akka.routing.{Routee, SmallestMailboxRoutingLogic, Router, ActorRefRoutee}
 import com.cooper.osgi.config.{IConfigService, IConfigurable}
 import scala.collection.mutable
-import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
 
 class EngineHandler(
@@ -22,24 +21,26 @@ class EngineHandler(
 	private[this] val kHost = "host"
 	private[this] val kAlias = "alias"
 	private[this] val kVoices = "voices"
+	private[this] val kInstances = "instances"
 
 	private[this] val props = mutable.Map[String, String](
 		kHost -> "localhost:8080",
 		kAlias -> "getTTSFile",
-		kVoices -> ""
+		kVoices -> "",
+		kInstances -> "4"
 	)
 
 	private[this] var engineHost = ""
 	private[this] var engineAlias = ""
 	private[this] var engineVoices = Set[String]()
+	private[this] var instances = 2
 
 	this.pushProperties()
 
 	private[this] val watcher = configService(
 		this,
-		props,
-		30 seconds
-	)
+		props
+	).toOption
 	if (watcher.isEmpty)
 		log.error("Watcher is undefined.")
 	
@@ -48,11 +49,15 @@ class EngineHandler(
 			val host = props get kHost getOrElse ("")
 			if (host.startsWith("http://")) host else s"http://$host"
 		}
+
 		engineAlias = {
 			val alias = props get kAlias getOrElse ("")
 			if (alias.startsWith("/")) alias else s"/$alias"
 		}
+
 		engineVoices = parseList( props get kVoices getOrElse("") ).toSet
+
+		instances = props get kInstances map { _.toInt } getOrElse(2)
 	}
 
 	private[this] def parseList(input: String) =
@@ -80,7 +85,7 @@ class EngineHandler(
 			this.props ++= props
 			this.pushProperties()
 
-		case _ => log.error("Got invalid message.")
+		case msg => log.error(s"Got invalid message of $msg.")
 	}
 
 	/**
@@ -93,6 +98,7 @@ class EngineHandler(
 	}
 
 	override def postStop() {
+		log.info(s"Resetting.")
 		watcher foreach { _.dispose() }
 		super.postStop()
 	}
@@ -110,30 +116,39 @@ class EngineRouter(
 
 	private[this] val watcher = configService(
 		this,
-		engines,
-		30 seconds
-	)
+		engines
+	).toOption
 
-	private[this] var router: Router = spawnRouter()
+	private[this] var router: Router = Router(SmallestMailboxRoutingLogic(), Vector.empty[Routee])
+	private[this] val nameSet = mutable.Set[String]()
 
-	private[this] def spawnRouter() = {
-		if (router != null)
-			router.routees.foreach{ r => router.removeRoutee(r) }
+	private[this] def spawnRoutee(name:String) = {
+		context.actorOf(Props(
+			classOf[EngineHandler],
+			name,
+			configService,
+			configHost,
+			configNode + s"/$name"
+		), name)
+	}
 
-		val routees = engines.map {
+	private[this] def spawnRouter() {
+		engines.foreach {
 			case (engineName, _) =>
-				val r = context.actorOf(Props(
-					classOf[EngineHandler],
-					engineName,
-					configService,
-					configHost,
-					configNode + s"/$engineName"
-				))
-				context watch r
-				ActorRefRoutee(r)
-		}.toVector
+				println(engineName)
+				if (nameSet contains engineName) ()
+				else {
+					val r = spawnRoutee(engineName)
+					context watch r
+					router = router.addRoutee(r)
+					nameSet add engineName
 
-		Router(SmallestMailboxRoutingLogic(), routees)
+				}
+				//context watch r
+				//ActorRefRoutee(r)
+		}
+
+		//Router(SmallestMailboxRoutingLogic(), routees)
 	}
 
 	def receive = {
@@ -141,17 +156,22 @@ class EngineRouter(
 			router.route(work, sender())
 
 		case Terminated(actor) =>
-			actor ! PoisonPill
+			val name = actor.path.name
+			nameSet remove name
 			router = router.removeRoutee(actor)
-			val r = context.actorOf(Props[FileWriter])
+			val r = spawnRoutee(name)
 			context watch r
 			router = router.addRoutee(r)
 
+			/*val r = context.actorOf(Props[FileWriter])
+			context watch r
+			router = router.addRoutee(r)*/
+
 		case UpdateProps(props) =>
 			this.engines ++= props
-			this.router = spawnRouter()
+			spawnRouter()
 
-		case _ => log.error("Got invalid message.")
+		case msg => log.error(s"Got invalid message of $msg.")
 	}
 
 	/**

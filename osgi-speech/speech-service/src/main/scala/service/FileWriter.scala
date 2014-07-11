@@ -4,7 +4,6 @@ import akka.actor.{Terminated, Props, Actor}
 import com.cooper.osgi.speech.service.Constants.{UpdateWriterCount, WriteFileMsg}
 import akka.routing.{SmallestMailboxRoutingLogic, Router, ActorRefRoutee}
 import com.cooper.osgi.utils.Logging
-import com.cooper.osgi.config.IConfigService
 
 class FileWriter() extends Actor {
 	private[this] val log = Logging(this.getClass)
@@ -17,7 +16,7 @@ class FileWriter() extends Actor {
 				case None => ()
 			}
 
-		case _ => log.error("Got invalid message.")
+		case msg => log.error(s"FileWriter Got invalid message of $msg.")
 	}
 }
 
@@ -51,6 +50,6 @@ class FileRouter(
 			context watch r
 			router = router.addRoutee(r)
 
-		case _ => log.error("Got invalid message.")
+		case msg => log.error(s"FileRouter Got invalid message of $msg.")
 	}
 }

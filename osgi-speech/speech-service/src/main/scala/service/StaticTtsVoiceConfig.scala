@@ -45,9 +45,8 @@ class StaticTtsVoiceConfig(
 
 	private[this] val watcher = watcherService(
 		this,
-		props,
-		10 seconds
-	)
+		props
+	).toOption
 
 	if (watcher.isEmpty)
 		log.error(s"$this watcher is undefined, problem with ${watcher.getClass}")
