@@ -1,12 +1,9 @@
-package com.cooper.osgi.io
+package com.cooper.osgi.io.local
 
-import java.io.{OutputStream, InputStream, Closeable}
+import java.io.{Closeable, OutputStream, InputStream}
+import org.apache.commons.io.IOUtils
 
-/**
- * This is a utility object for managing IO operations.
- * 	- These operations should be wrapped in a monad for fault tolerance.
- */
-object IOUtils {
+object Utils {
 	/**
 	 * Used to automatically close a resource after function evaluation.
 	 * @param resource The resource to use.

@@ -2,8 +2,9 @@ package com.cooper.osgi.speech.service
 
 import com.cooper.osgi.speech.ITtsVoice
 import com.cooper.osgi.sampled.{IAudioReader, IAudioSystem}
-import com.cooper.osgi.io.INode
+import com.cooper.osgi.io.{IFileSystem, INode}
 import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
+import scala.util.{Try, Success, Failure}
 
 /**
  * Represents a static speech synthesizer voice.
@@ -16,7 +17,7 @@ import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
  **/
 class StaticTtsVoice(
 		audioSystem: IAudioSystem,
-		fileSystem: INode,
+		fileSystem: IFileSystem,
 		val key: String,
 		rootPath: String,
 		filePrefix: String,
@@ -29,13 +30,7 @@ class StaticTtsVoice(
 
 	private[this] val maybe = MaybeLog(log, track)
 
-	private[this] val rootFile = leftToOption{ fileSystem(rootPath) }.get
-
-	private[this] def leftToOption[A](expr: Either[A, Throwable]) =
-		expr match {
-			case Left(v) => Some(v)
-			case Right(err) => maybe.logErr(err); None
-		}
+	private[this] val rootFile = fileSystem.getBucket(rootPath).get
 
 	/**
 	 * Pulls an optional IAudioReader object from the audioSystem.
@@ -48,16 +43,16 @@ class StaticTtsVoice(
 	 * @param str The string to convert.
 	 * @return A converted string to a file name.
 	 */
-	private[this] def toKey(str: String) = s"$filePrefix$str$fileSuffix"
+	private[this] def toKey(str: String) =
+		s"$filePrefix$str$fileSuffix"
 
 	/**
 	 * Converts a given file name (key) to a file.
 	 * @param key The file name to open.
 	 * @return Some(file) if the file could be opened and read, else None.
 	 */
-	private[this] def toFile(key: String) = {
-		rootFile(key)
-	}
+	private[this] def toFile(key: String) =
+		rootFile.read(key)
 
 	/**
 	 * Opens the stream associated with the given word.
@@ -65,8 +60,10 @@ class StaticTtsVoice(
 	 * @return Some(stream) if the stream could be opened, else None.
 	 */
 	private[this] def toStream(word: String) = {
-		leftToOption{ toFile(toKey(word)) }.flatMap {
-			file => leftToOption{ file.content }
+		tryToOption {
+			toFile(toKey(word)).flatMap {
+				file => file.content
+			}
 		}
 	}
 
@@ -80,4 +77,12 @@ class StaticTtsVoice(
 		val streams = words.map(toStream).flatten
 		reader flatMap (r => r(streams))
 	}.flatten
+
+	private[this] def tryToOption[A](expr: Try[A]): Option[A] =
+		expr match {
+			case Failure(err) =>
+				log.error("", err)
+				None
+			case Success(res) => Some(res)
+		}
 }

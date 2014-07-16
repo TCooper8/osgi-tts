@@ -8,7 +8,7 @@ import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import scala.concurrent.ExecutionContext
 import ExecutionContext.Implicits.global
 import com.cooper.osgi.sampled.IAudioReader
-import com.cooper.osgi.io.{INode, IOUtils}
+import com.cooper.osgi.io.{IBucket, IFileSystem}
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import java.io.{InputStream, ByteArrayInputStream}
@@ -28,7 +28,7 @@ import akka.util.Timeout
  * @param timeoutSeconds The timeout for each request to the ITtsEngine, in seconds.
  */
 class TtsProxyServlet(
-		fileSystem: INode,
+		fileSystem: IFileSystem,
 		configService: IConfigService,
 		staticEngine: ITtsEngine,
 		synthEngineHost: String,
@@ -103,8 +103,8 @@ class TtsProxyServlet(
 	 * @param reader The reader to reader from.
 	 */
 	private[this] def tryCopyReader(resp: HttpServletResponse, reader: IAudioReader) {
-		IOUtils.using( reader ) { reader => maybe {
-			IOUtils.using( resp.getOutputStream ) { outStream => maybe {
+		Utils.using( reader ) { reader => maybe {
+			Utils.using( resp.getOutputStream ) { outStream => maybe {
 
 				resp.setContentType("audio/x-wav")
 				resp.setContentLength(reader.getContentLength())
@@ -122,12 +122,12 @@ class TtsProxyServlet(
 	}
 
 	private[this] def copyToResp(inStream: InputStream, resp: HttpServletResponse) = Try{
-		IOUtils.using(inStream) {
+		Utils.using(inStream) {
 			inStream =>
 				val outStream = resp.getOutputStream()
 				resp.setContentType("audio/x-wav")
 				resp.setContentLength(inStream.available)
-				IOUtils.copy(inStream, outStream)
+				Utils.copy(inStream, outStream)
 				outStream.flush()
 		}
 	}
@@ -142,12 +142,12 @@ class TtsProxyServlet(
 		task()
 	}
 
-	private[this] def cacheResponse(rootNode: INode, data: Array[Byte], key: String) = Try {
+	private[this] def cacheResponse(rootNode: IBucket, data: Array[Byte], key: String) = Try {
 		val inStream = new ByteArrayInputStream(data)
 		fileWriter ! Constants.WriteFileMsg(rootNode, inStream, key)
 	}
 
-	private[this] def pipeResponse(rootNode: INode, key: String, engineResp: Response, resp: HttpServletResponse) = Try{
+	private[this] def pipeResponse(rootNode: IBucket, key: String, engineResp: Response, resp: HttpServletResponse) = Try{
 		engineResp.getStatusCode() match {
 			case 200 =>
 				val data = engineResp.getResponseBodyAsBytes()
@@ -168,25 +168,25 @@ class TtsProxyServlet(
 
 	private[this] def handleSynth(speak:String, voice:String, resp:HttpServletResponse) {
 		val childPath = s"$rootPath/$voice"
-		fileSystem(childPath) match {
-			case Left(rootNode) =>
+		fileSystem.createBucket(childPath) match {
+			case Success(bucket) =>
 				val key = filePrefix + hash(voice + speak) + fileSuffix
 
-				rootNode.children.get(key) match {
-					/*case Some(child) => child.content match {
-						case Left(inStream) => copyToResp(inStream, resp)
-						case Right(error) =>
+				bucket.read(key) match {
+					/*case Success(child) => child.content match {
+						case Success(inStream) => copyToResp(inStream, resp)
+						case Failure(error) =>
 							log.error(s"Cannot retrive content from ${child.path}", error)
 							resp.sendError(500)
 					}*/
 
-					case _ => //callSynthEngine(speak, voice) match {
+					case _ => //case Failure(_) =>
 						Try {
 							val task = engineRouter ? CallEngine(voice, speak)
 
 							Await.result(task, timeout) match {
 								case CallEngineReply(Success(engineResp)) =>
-									pipeResponse(rootNode, key, engineResp, resp) match {
+									pipeResponse(bucket, key, engineResp, resp) match {
 										case Failure(error) =>
 											log.error("Unable to pipe responses", error)
 											resp.sendError(500)
@@ -204,7 +204,7 @@ class TtsProxyServlet(
 							case Success(_) => ()
 						}
 				}
-			case Right(error) =>
+			case Failure(error) =>
 				log.error(s"Unable to retrieve $childPath from file system.", error)
 				resp.sendError(500)
 		}
@@ -228,7 +228,7 @@ class TtsProxyServlet(
 	 * @param resp An HttpServletResponse object that contains the response the servlet sends to the client.
 	 */
 	override def doGet(req: HttpServletRequest, resp: HttpServletResponse) {
-		maybe {
+		Try {
 			// Retrieve the voice and phrase from the request, for translation.
 			val voiceIn = req.getParameter("voice")
 			val phrase = req.getParameter("speak")
@@ -245,6 +245,11 @@ class TtsProxyServlet(
 					track("Http:BadRequests", 1)
 					resp.sendError(400)
 			}
+		} match {
+			case Failure(err) =>
+				log.error("", err)
+
+			case _ => ()
 		}
 	}
 

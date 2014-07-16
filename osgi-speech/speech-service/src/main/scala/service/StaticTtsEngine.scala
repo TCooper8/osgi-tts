@@ -1,7 +1,7 @@
 package com.cooper.osgi.speech.service
 
 import com.cooper.osgi.sampled.{IAudioReader, IAudioSystem}
-import com.cooper.osgi.io.INode
+import com.cooper.osgi.io.{IFileSystem, INode}
 import com.cooper.osgi.config.{IConfigurable, IConfigService}
 import com.cooper.osgi.speech.ITtsStaticEngine
 import scala.concurrent.{ExecutionContext, Future}
@@ -12,7 +12,7 @@ import ExecutionContext.Implicits.global
 
 class StaticTtsEngine(
 		audioSystem: IAudioSystem,
-		fileSystem: INode,
+		fileSystem: IFileSystem,
 		watcherService: IConfigService,
 		encoding: String,
 		val configHost: String,
