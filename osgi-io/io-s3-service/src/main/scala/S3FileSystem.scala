@@ -1,7 +1,7 @@
-package com.cooper.osgi.s3
+package com.cooper.osgi.io.s3
 
 import com.amazonaws.services.s3.AmazonS3Client
-import com.amazonaws.services.s3.model.{Bucket => S3Bucket, ObjectMetadata, S3ObjectSummary, S3Object}
+import com.amazonaws.services.s3.model.ObjectMetadata
 import com.cooper.osgi.io.{IBucket, INode, IFileSystem}
 import java.io.{File, InputStream}
 import java.util.Date
@@ -112,74 +112,4 @@ class S3FileSystem(client: AmazonS3Client) extends IFileSystem {
 	def deleteBucket(path: String): Try[Unit] = Try {
 		client.deleteBucket(path)
 	}
-}
-
-case class SummaryNode(fs: IFileSystem, bucket: IBucket, summary: S3ObjectSummary) extends INode {
-
-	def content: Try[InputStream] =
-		fs.read(bucket.key, this.key)
-
-	def key: String =
-		summary.getKey()
-
-	def lastModified: Try[Date] = Try {
-		summary.getLastModified()
-	}
-
-	def write(inStream: InputStream): Try[Unit] =
-		fs.write(bucket.key, inStream, key).map{ _ => Unit }
-
-	def path: String =
-		fs.resolvePath(bucket.path, this.key)
-
-	def parent = Success(bucket)
-}
-
-case class Node(fs: IFileSystem, parentKey: String, key: String) extends INode {
-
-	def content: Try[InputStream] =
-		fs.read(parentKey, key)
-
-	def lastModified: Try[Date] =
-		fs.getLastModified(parentKey, key)
-
-	def write(inStream: InputStream): Try[Unit] =
-		fs.write(parentKey, inStream, key).map{ _ => Unit }
-
-	def path: String =
-		this.key
-
-	def parent =
-		fs.getBucket(parentKey)
-}
-
-case class Bucket(fs: IFileSystem, client: AmazonS3Client, bucket: S3Bucket) extends IBucket {
-
-	def creationDate: Try[Date] = Try {
-		bucket.getCreationDate()
-	}
-
-	def listNodes: Try[Iterable[INode]] = Try {
-		client.listObjects(this.key).getObjectSummaries.map {
-			summ => SummaryNode(fs, this, summ)
-		}.toIterable
-	}
-
-	def key: String =
-		bucket.getName()
-
-	def write(inStream: InputStream, key: String): Try[INode] =
-		fs.write(this, inStream, key)
-
-	def delete(key: String): Try[Unit] =
-		fs.deleteNode(this.key, key)
-
-	def listBuckets: Try[Iterable[IBucket]] =
-		fs.listBuckets
-
-	def read(key: String): Try[INode] =
-		fs.getNode(this.key, key)
-
-	def path: String =
-		this.key
 }

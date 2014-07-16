@@ -20,5 +20,5 @@ object Utils {
 	 * @return Returns the number of bytes transferred.
 	 */
 	def copy(in: InputStream, out: OutputStream): Int =
-		org.apache.commons.io.IOUtils.copy(in, out)
+		IOUtils.copy(in, out)
 }
