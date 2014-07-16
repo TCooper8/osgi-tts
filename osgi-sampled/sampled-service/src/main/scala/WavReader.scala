@@ -1,6 +1,5 @@
 package com.cooper.osgi.sampled.service
 
-import com.cooper.osgi.io.IOUtils
 import java.nio.{ByteOrder, ByteBuffer}
 import com.cooper.osgi.sampled.IAudioReader
 import java.io.{OutputStream, InputStream}
@@ -79,7 +78,7 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 	 * @param outStream The stream to copy to.
 	 */
 	def copyBodyTo(outStream: OutputStream) {
-		maybe { IOUtils.copy(inStream, outStream) }
+		maybe { Utils.copy(inStream, outStream) }
 		parent.copyBodyTo(outStream)
 	}
 

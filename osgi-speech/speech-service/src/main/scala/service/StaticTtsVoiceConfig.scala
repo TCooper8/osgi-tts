@@ -2,7 +2,7 @@ package com.cooper.osgi.speech.service
 
 import com.cooper.osgi.config.{IConfigurable, IConfigService}
 import com.cooper.osgi.sampled.{IAudioReader, IAudioSystem}
-import com.cooper.osgi.io.INode
+import com.cooper.osgi.io.{IFileSystem, INode}
 import com.cooper.osgi.speech.ITtsVoice
 import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import scala.collection.mutable
@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference
 class StaticTtsVoiceConfig(
 		watcherService: IConfigService,
 		audioSystem: IAudioSystem,
-		fileSystem: INode,
+		fileSystem: IFileSystem,
 		parentNode: String,
 		encoding: String,
 		val key: String,
