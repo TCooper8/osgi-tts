@@ -4,8 +4,6 @@ import akka.actor._
 import com.cooper.osgi.tracking.{ITrackerService, ITracker}
 import scala.collection.mutable
 import com.typesafe.config.{ConfigFactory, Config}
-import com.cooper.osgi.tracking.service.Tracker
-import scala.Some
 
 case class Tracker[A](name: String) extends ITracker[A] {
 	private[this] val cache: mutable.Map[A, Long] =
