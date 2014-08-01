@@ -2,12 +2,11 @@ package com.cooper.osgi.speech.service
 
 import com.cooper.osgi.config.{IConfigurable, IConfigService}
 import com.cooper.osgi.sampled.{IAudioReader, IAudioSystem}
-import com.cooper.osgi.io.{IFileSystem, INode}
+import com.cooper.osgi.io.IFileSystem
 import com.cooper.osgi.speech.ITtsVoice
-import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import scala.collection.mutable
-import scala.concurrent.duration._
 import java.util.concurrent.atomic.AtomicReference
+import scala.util.{Failure, Success, Try}
 
 /**
  * Represents a static speech synthesizer voice.
@@ -27,16 +26,27 @@ class StaticTtsVoiceConfig(
 		IConfigurable
 	{
 
-	private[this] val log = Logging(key)
+	private[this] val log =
+		Utils.getLogger(this)
 
-	private[this] val track = StatTracker(Constants.trackerKey)
+	private[this] val track =
+		Utils.getTracker(Constants.trackerKey)
 
-	private[this] val maybe = MaybeLog(log, track)
+	private[this] def maybe[A](expr: => A): Option[A] = maybe("")(expr)
+	private[this] def maybe[A](msg: String = "")(expr: => A): Option[A] = {
+		Try{ expr } match {
+			case Success(m) => Option(m)
+			case Failure(err) =>
+				log.error(msg, err)
+				track.put(err.getClass.getName, 1l)
+				None
+		}
+	}
 
 	val configNode: String = s"$parentNode/$key"
 
 	private[this] val props = SafeMap[String, String](
-		"rootPath" -> s"/voices/$key",
+		"rootPath" -> (System.getProperty("user.dir") + s"/voice/$key"),  //s"/voices/$key",
 		"filePrefix" -> "",
 		"fileSuffix" -> ".wav"
 	)
@@ -56,7 +66,9 @@ class StaticTtsVoiceConfig(
 	 * @param phrase The phrase to synthesize.
 	 * @return An Option IAudioReader that contains the synthesized data.
 	 */
-	def apply(phrase: String): Option[IAudioReader] = voice.get flatMap (v => v(phrase))
+	def apply(phrase: String): Try[IAudioReader] = Try {
+		voice.get.map{ _.apply(phrase) }.get
+	}.flatten
 
 	/**
 	 * Callback to inform this object that updates have occurred.
@@ -86,14 +98,6 @@ class StaticTtsVoiceConfig(
 		}
 	}
 
-	/*private[this] val RootPath = PropExtract("rootPath")
-	private[this] val FilePrefix = PropExtract("filePrefix")
-	private[this] val FileSuffix = PropExtract("fileSuffix")*/
-
-	//private[this] def rootPath = props get "rootPath"
-	//private[this] def filePrefix = props get "filePrefix"
-	//private[this] def fileSuffix = props get "fileSuffix"
-
 	private[this] def makeVoice: Option[StaticTtsVoice] = {
 		props match {
 			case PropsExtract(rootPath,filePrefix,fileSuffix) =>
@@ -112,23 +116,6 @@ class StaticTtsVoiceConfig(
 				log.error("Unable to create new voice.")
 				None
 		}
-/*
-		(rootPath, filePrefix, fileSuffix) match {
-			case (Some(rootPath), Some(filePrefix), Some(fileSuffix)) =>
-				maybe {
-					new StaticTtsVoice(
-						audioSystem,
-						fileSystem,
-						key,
-						rootPath,
-						filePrefix,
-						fileSuffix
-					)
-				}
-			case _ =>
-				log.error("Unable to create new voice")
-				None
-		}*/
 	}
 
 	private[this] def SafeMap[A, B](seq: (A, B)*): mutable.Map[A, B] = {

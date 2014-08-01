@@ -4,17 +4,12 @@ import akka.actor._
 
 import com.cooper.osgi.config.{IConfigurable, IConfigWatcher}
 import org.apache.zookeeper.AsyncCallback.StatCallback
-import org.apache.zookeeper.{ZooKeeper, WatchedEvent, Watcher}
+import org.apache.zookeeper.{WatchedEvent, Watcher}
 import scala.concurrent.duration.FiniteDuration
 import org.apache.zookeeper.data.Stat
-import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
-import com.cooper.osgi.config.service.ConfigWatcherEvents.{PutDataMsg, ExistsMsg, ProcessResultMsg, ProcessMsg}
-import scala.util.Try
-import com.cooper.osgi.config.service.ConfigWatcherEvents.ProcessMsg
-import com.cooper.osgi.config.service.ConfigWatcherEvents.ExistsMsg
-import com.cooper.osgi.utils.MaybeLog
-import com.cooper.osgi.config.service.ConfigWatcherEvents.PutDataMsg
-import com.cooper.osgi.config.service.ConfigWatcherEvents.ProcessResultMsg
+import scala.util.{Failure, Success, Try}
+import com.cooper.osgi.config.service.ConfigWatcherEvents._
+import java.io.InputStream
 
 /**
  * This is a proxy class for a ConfigActor.
@@ -35,9 +30,19 @@ case class ConfigProxy(
 		StatCallback
 	{
 
-	private[this] val log = Logging(this.getClass)
-	private[this] val track = StatTracker(Constants.trackerKey)
-	private[this] val maybe = MaybeLog(log, track)
+	private[this] val log = Utils.getLogger(this)
+	private[this] val track = Utils.getTracker(Constants.trackerKey)
+
+	private[this] def maybe[A](expr: => A): Option[A] = maybe("")(expr)
+	private[this] def maybe[A](msg: String = "")(expr: => A): Option[A] = {
+		Try{ expr } match {
+			case Success(m) => Option(m)
+			case Failure(err) =>
+				log.error(msg, err)
+				track.put(err.getClass.getName, 1l)
+				None
+		}
+	}
 
 	val host: String = config.configHost
 
@@ -83,6 +88,17 @@ case class ConfigProxy(
 	def exists(data: Array[Byte]) {
 		maybe{ actor ! ExistsMsg(data) }
 	}
+
+	/**
+	 * Attempts to parse the contents of an InputStream and push it into configuration.
+	 * - Parses the InputStream using 'typesafe.config.ConfigFactory.parse'.
+	 * @param inStream The stream of data.
+	 */
+	def putData(inStream: InputStream): Try[Unit] = Try{
+		NodeStructure.parse(inStream).map { nodes =>
+			actor ! PutNodesMsg(nodes)
+		}
+	}.flatten
 
 	/**
 	 * Takes a zookeeper WatchedEvent and sends it to the watch actor.

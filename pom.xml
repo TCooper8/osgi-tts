@@ -11,7 +11,7 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>osgi-utils</module>
+        <module>osgi-tracking</module>
         <module>osgi-io</module>
         <module>osgi-config</module>
         <module>osgi-sampled</module>
@@ -42,11 +42,6 @@
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>utils-core</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
                 <artifactId>io-model</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -55,17 +50,22 @@
                 <artifactId>sampled-model</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>tracking-model</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- Project feature dependencies -->
 
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>io-features</artifactId>
+                <artifactId>config-features</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>config-features</artifactId>
+                <artifactId>io-features</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -78,6 +78,11 @@
                 <artifactId>speech-features</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>tracking-features</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- Third party dependencies -->
 
@@ -85,6 +90,11 @@
                 <groupId>com.typesafe.akka</groupId>
                 <artifactId>akka-actor_${scala.dep.version}</artifactId>
                 <version>${akka.actor.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.typesafe</groupId>
+                <artifactId>config</artifactId>
+                <version>1.2.0</version>
             </dependency>
             <dependency>
                 <groupId>commons-io</groupId>

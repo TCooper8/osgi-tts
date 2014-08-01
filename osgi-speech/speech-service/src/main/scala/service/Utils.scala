@@ -2,8 +2,23 @@ package com.cooper.osgi.speech.service
 
 import java.io.{OutputStream, InputStream, Closeable}
 import org.apache.commons.io.IOUtils
+import java.util.concurrent.atomic.AtomicReference
+import com.cooper.osgi.tracking.{ITracker, ITrackerService}
+import org.slf4j.LoggerFactory
 
 object Utils {
+	private[this] val trackerService: AtomicReference[ITrackerService] =
+		new AtomicReference[ITrackerService](null)
+
+	def getLogger(name: String) =
+		LoggerFactory.getLogger(name)
+
+	def getLogger(cls: Any) =
+		LoggerFactory.getLogger(cls.getClass)
+
+	def getTracker(name: String): ITracker[String] =
+		trackerService.get().getTracker(name)
+
 	/**
 	 * Used to automatically close a resource after function evaluation.
 	 * @param resource The resource to use.
@@ -21,4 +36,11 @@ object Utils {
 	 */
 	def copy(in: InputStream, out: OutputStream): Int =
 		IOUtils.copy(in, out)
+
+	def setTrackerService(ref: ITrackerService) {
+		Option{ ref } foreach {
+			ref =>
+				this.trackerService.set(ref)
+		}
+	}
 }

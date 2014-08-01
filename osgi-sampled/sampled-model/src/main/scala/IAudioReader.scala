@@ -1,6 +1,7 @@
 package com.cooper.osgi.sampled
 
 import java.io.{Closeable, InputStream, OutputStream}
+import scala.util.Try
 
 /**
  * An IAudioReader is a monadic class that reads an audio file for streaming.
@@ -13,14 +14,14 @@ abstract class IAudioReader(val extensionKey: String) extends Closeable with Aut
 	 * @param inStream The stream to bind.
 	 * @return A new IAudioReader with this IAudioReader in sequence.
 	 */
-	def apply(inStream: InputStream): Option[IAudioReader]
+	def apply(inStream: InputStream): Try[IAudioReader]
 
 	/**
 	 * Binds multiple streams to this IAudioReader's sequence.
 	 * @param inStreams The streams to bind in sequence.
 	 * @return A new IAudioReader with this IAudioReader in sequence.
 	 */
-	def apply(inStreams: Iterable[InputStream]): Option[IAudioReader]
+	def apply(inStreams: Iterable[InputStream]): Try[IAudioReader]
 
 	/**
 	 * Finalizes the data sequence, closing any streams.
@@ -30,20 +31,23 @@ abstract class IAudioReader(val extensionKey: String) extends Closeable with Aut
 	/**
 	 * Copies the data body to an OutputStream.
 	 * @param outStream The stream to copy to.
+	 * @return Success(Unit) if no failure occurs, else Failure(error).
 	 */
-	def copyBodyTo(outStream: OutputStream): Unit
+	def copyBodyTo(outStream: OutputStream): Try[Unit]
 
 	/**
 	 * Copies the format body to an OutputStream.
 	 * @param outStream The stream to copy to.
+	 * @return Success(Unit) if no failure occurs, else Failure(error).
 	 */
-	def copyFormatTo(outStream: OutputStream): Unit
+	def copyFormatTo(outStream: OutputStream): Try[Unit]
 
 	/**
 	 * Copies all available data to an OutputStream.
 	 * @param outStream The stream to copy to.
+	 * @return Success(Unit) if no failure occurs, else Failure(error).
 	 */
-	def copyTo(outStream: OutputStream): Unit
+	def copyTo(outStream: OutputStream): Try[Unit]
 
 	/**
 	 * Gets the total audio data length in bytes.

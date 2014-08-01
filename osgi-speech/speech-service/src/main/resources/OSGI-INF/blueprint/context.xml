@@ -35,14 +35,40 @@
             interface="com.cooper.osgi.config.IConfigService"
             availability="mandatory"
             />
+    <reference
+            id="trackerService"
+            interface="com.cooper.osgi.tracking.ITrackerService"
+            availability="mandatory"
+            />
 
     <cm:property-placeholder persistent-id="com.cooper.osgi.speech" update-strategy="reload">
         <cm:default-properties>
             <cm:property name="configHost" value="localhost:2181" />
             <cm:property name="configNode" value="/tts"/>
-            <cm:property name="synthEngineHost" value="http://10.130.4.63:8082"/>
         </cm:default-properties>
     </cm:property-placeholder>
+
+    <bean
+            id="staticEngineServlet"
+            class="com.cooper.osgi.speech.service.TtsProxyServlet"
+            >
+        <argument ref="audioSystem"/>
+        <argument ref="fileSystem"/>
+        <argument ref="configService"/>
+        <argument ref="trackerService"/>
+        <argument ref="encoding"/>
+        <argument value="${configHost}"/>
+        <argument value="${configNode}"/>
+    </bean>
+
+    <service
+            ref="staticEngineServlet"
+            interface="javax.servlet.http.HttpServlet">
+
+        <service-properties>
+            <entry key="alias" value="/getTTSFile" />
+        </service-properties>
+    </service>
 
     <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
         <command name="cooper:speech/set-confighost">
@@ -57,7 +83,6 @@
                 <argument ref="PID"/>
             </action>
         </command>
-
         <command name="cooper:speech/get-confighost">
             <action class="com.cooper.osgi.speech.commands.GetConfigHostCmd" >
                 <argument ref="configAdmin"/>
@@ -70,57 +95,15 @@
                 <argument ref="PID"/>
             </action>
         </command>
-    </command-bundle>
-
-    <!--command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
-        <command name="cooper:speech/set-confighost">
-            <action class="com.cooper.osgi.speech.static.command.HostCommand" >
-                <argument ref="configAdmin"/>
-                <argument ref="PID"/>
+        <command name="cooper:speech/get-tracked">
+            <action class="com.cooper.osgi.speech.commands.GetTrackingCmd" >
+                <argument ref="staticEngineServlet"/>
             </action>
         </command>
-    </command-bundle-->
-
-    <bean
-            id="staticEngine"
-            class="com.cooper.osgi.speech.service.StaticTtsEngine"
-            destroy-method="dispose"
-            >
-        <argument ref="audioSystem"/>
-        <argument ref="fileSystem"/>
-        <argument ref="configService"/>
-        <argument ref="encoding"/>
-        <argument value="${configHost}"/>
-        <argument value="${configNode}/voices"/>
-    </bean>
-
-    <bean
-            id="staticEngineServlet"
-            class="com.cooper.osgi.speech.service.TtsProxyServlet"
-            destroy-method="dispose"
-            >
-
-        <argument ref="fileSystem"/>
-        <argument ref="configService"/>
-        <argument ref="staticEngine"/>
-        <argument value="${synthEngineHost}"/>
-        <argument ref="encoding"/>
-        <argument value="${configHost}"/>
-        <argument value="${configNode}/proxy"/>
-        <argument value="10"/>
-    </bean>
-
-    <service
-            ref="staticEngine"
-            interface="com.cooper.osgi.speech.ITtsStaticEngine"
-            />
-
-    <service
-            ref="staticEngineServlet"
-            interface="javax.servlet.http.HttpServlet">
-
-        <service-properties>
-            <entry key="alias" value="/getTTSFile" />
-        </service-properties>
-    </service>
+        <command name="cooper:speech/load-configfile">
+            <action class="com.cooper.osgi.speech.commands.LoadConfigFile" >
+                <argument ref="staticEngineServlet"/>
+            </action>
+        </command>
+    </command-bundle>
 </blueprint>

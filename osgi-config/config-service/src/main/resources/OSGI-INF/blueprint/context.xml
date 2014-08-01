@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0">
 
+    <reference
+            id="trackerService"
+            interface="com.cooper.osgi.tracking.ITrackerService"
+            availability="mandatory"
+            />
+
     <bean
             id="configService"
             class="com.cooper.osgi.config.service.ConfigService"
             destroy-method="dispose"
             >
+        <argument ref="trackerService"/>
     </bean>
 
     <service

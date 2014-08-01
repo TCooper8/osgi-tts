@@ -2,6 +2,7 @@ package com.cooper.osgi.speech
 
 import scala.concurrent.Future
 import com.cooper.osgi.sampled.IAudioReader
+import scala.util.Try
 
 /**
  * A structure that can map Strings to ITtsVoices.
@@ -21,7 +22,7 @@ abstract class ITtsEngine(val key: String) extends Ordered[ITtsEngine] {
 	 * Performs an audio Translation of the given phrase with the given ITtsVoice key.
 	 * @param voice The ITtsVoice key to look up.
 	 * @param phrase The phrase to translate.
-	 * @return The Some(IAudioReader) if successful, else None.
+	 * @return The Success[IAudioReader] if successful, else Failure(err).
 	 */
-	def translate(voice: String)(phrase: String): Future[Option[IAudioReader]]
+	def translate(voice: String)(phrase: String): Future[Try[IAudioReader]]
 }

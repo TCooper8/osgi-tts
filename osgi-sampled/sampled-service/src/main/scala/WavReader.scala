@@ -3,7 +3,7 @@ package com.cooper.osgi.sampled.service
 import java.nio.{ByteOrder, ByteBuffer}
 import com.cooper.osgi.sampled.IAudioReader
 import java.io.{OutputStream, InputStream}
-import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
+import scala.util.{Failure, Success, Try}
 
 /**
  * A WavReader is a class that parses a WAVE file and allows for copy to an OutputStream.
@@ -12,10 +12,6 @@ import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
  * @param parent The parent WavReader is the next WAVE node in sequence to read data from.
  */
 class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
-	private[this] val log = Logging(this.getClass)
-	private[this] val track = StatTracker(Constants.trackerKey)
-	private[this] val maybe = MaybeLog(log, track)
-
 	// Header information for the WAVE file chunk.
 	val chunkID: String = getString(4)
 	val chunkSize: Int = getLEInt() + parent.chunkSize
@@ -46,7 +42,7 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 	 * @param inStream The stream to bind.
 	 * @return A new IAudioReader with this IAudioReader in sequence.
 	 */
-	def apply(inStream: InputStream): Option[IAudioReader] = maybe {
+	def apply(inStream: InputStream): Try[IAudioReader] = Try {
 		new WavReader(inStream, this)
 	}
 
@@ -55,15 +51,12 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 	 * @param inStreams The streams to bind in sequence.
 	 * @return A new IAudioReader with this IAudioReader in sequence.
 	 */
-	def apply(inStreams: Iterable[InputStream]): Option[IAudioReader] = {
-		def part(acc: IAudioReader, s: InputStream) = {
-			acc.apply(s) match {
-				case Some(r) => r
-				case _ => acc
-			}
+	def apply(inStreams: Iterable[InputStream]): Try[IAudioReader] = Try{
+		def part(acc: Try[IAudioReader], s: InputStream) = {
+			acc.flatMap{ _.apply(s) }
 		}
-		Some( inStreams.foldLeft(this.asInstanceOf[IAudioReader])(part) )
-	}
+		inStreams.foldLeft(Try{this.asInstanceOf[IAudioReader]})(part)
+	}.flatten
 
 	/**
 	 * Finalizes the data sequence, closing any streams.
@@ -77,16 +70,17 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 	 * Copies the data body to an OutputStream.
 	 * @param outStream The stream to copy to.
 	 */
-	def copyBodyTo(outStream: OutputStream) {
-		maybe { Utils.copy(inStream, outStream) }
-		parent.copyBodyTo(outStream)
+	def copyBodyTo(outStream: OutputStream) = Try {
+		Try { Utils.copy(inStream, outStream) }.map {
+			_ => parent.copyBodyTo(outStream)
+		}
 	}
 
 	/**
 	 * Copies the format body to an OutputStream.
 	 * @param outStream The stream to copy to.
 	 */
-	def copyFormatTo(outStream: OutputStream) {
+	def copyFormatTo(outStream: OutputStream) = Try {
 		val buffer = getLEByteBuffer(44)
 		buffer.put(chunkID.getBytes())
 		buffer.putInt(fmtChunkSize)
@@ -102,16 +96,17 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 		buffer.put(dataChunkID.getBytes())
 		buffer.putInt(dataChunkSize)
 
-		maybe { outStream.write(buffer.array()) }
-	}
+		Try { outStream.write(buffer.array()) }
+	}.flatten
 
 	/**
 	 * Copies all available data to an OutputStream.
 	 * @param outStream The stream to copy to.
 	 */
-	def copyTo(outStream: OutputStream) {
-		copyFormatTo(outStream)
-		copyBodyTo(outStream)
+	def copyTo(outStream: OutputStream) = Try {
+		copyFormatTo(outStream).map {
+			_ => copyBodyTo(outStream)
+		}
 	}
 
 	/**
@@ -155,10 +150,6 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
  * This is the zero state of the WavReader monad.
  */
 object WavReader extends IWavReader {
-	private[this] val log = Logging(this.getClass)
-	private[this] val track = StatTracker(Constants.trackerKey)
-	private[this] val maybe = MaybeLog(log, track)
-
 	val chunkID: String = "RIFF"
 	val chunkSize: Int = 0
 	val format: String = "WAVE"
@@ -173,19 +164,21 @@ object WavReader extends IWavReader {
 	val dataChunkID: String = "data"
 	val dataChunkSize: Int = 0
 
-	def apply(inStream: InputStream): Option[IAudioReader] =
-		maybe { new WavReader(inStream, this) }
+	def apply(inStream: InputStream): Try[IAudioReader] = Try {
+		new WavReader(inStream, this)
+	}
 
-	def apply(inStreams: Iterable[InputStream]): Option[IAudioReader] =
+	def apply(inStreams: Iterable[InputStream]): Try[IAudioReader] = Try {
 		inStreams match {
-			case Nil => None
-			case s::ss => apply(s) flatMap(w => w(ss))
+			case Nil => Success(this)
+			case s :: ss => apply(s).flatMap{ w => w(ss) }
 		}
+	}.flatten
 
 	def close(): Unit = ()
-	def copyBodyTo(outStream: OutputStream): Unit = ()
-	def copyFormatTo(outStream: OutputStream): Unit = ()
-	def copyTo(outStream: OutputStream): Unit = ()
+	def copyBodyTo(outStream: OutputStream): Try[Unit] = Success(Unit)
+	def copyFormatTo(outStream: OutputStream): Try[Unit] = Success(Unit)
+	def copyTo(outStream: OutputStream): Try[Unit] = Success(Unit)
 
 	/**
 	 * Gets the total audio data length in bytes.

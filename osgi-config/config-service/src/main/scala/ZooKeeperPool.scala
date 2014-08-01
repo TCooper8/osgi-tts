@@ -24,6 +24,10 @@ object ZooKeeperPool {
 
 class ZooKeeperPool() extends Actor {
 
+	private[this] val log = Utils.getLogger(this)
+
+	private[this] val track = Utils.getTracker(Constants.trackerKey)
+
 	this.context.setReceiveTimeout(keeperTickTime)
 
 	private[this] val keepers: mutable.Map[String, ZooKeeper] =
@@ -106,5 +110,9 @@ class ZooKeeperPool() extends Actor {
 
 		case ReceiveTimeout =>
 			this.cleanKeepers()
+
+		case msg =>
+			log.error(s"Recieved bad msg of $msg")
+			track.put(s"BadMsg:$msg", 1l)
 	}
 }

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0">
+
+    <bean
+        id="trackerService"
+        class="com.cooper.osgi.tracking.service.TrackerService"
+        destroy-method="dispose"
+        >
+    </bean>
+
+    <service
+        ref="trackerService"
+        interface="com.cooper.osgi.tracking.ITrackerService"
+        />
+</blueprint>

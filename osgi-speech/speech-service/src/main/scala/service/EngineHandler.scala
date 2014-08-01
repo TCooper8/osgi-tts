@@ -3,11 +3,22 @@ package com.cooper.osgi.speech.service
 import akka.actor.{PoisonPill, Terminated, Props, Actor}
 import com.cooper.osgi.speech.service.Constants._
 import scala.util.Try
-import com.cooper.osgi.utils.Logging
-import akka.routing.{Routee, SmallestMailboxRoutingLogic, Router, ActorRefRoutee}
+import akka.routing._
 import com.cooper.osgi.config.{IConfigService, IConfigurable}
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
+import akka.util.Timeout
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration._
+import akka.io.Udp.SO.Broadcast
+import com.cooper.osgi.speech.service.Constants.CallEngineReply
+import scala.Some
+import com.cooper.osgi.speech.service.Constants.UpdatePropsMap
+import akka.routing.Router
+import akka.actor.Terminated
+import com.cooper.osgi.speech.service.Constants.UpdateProps
+import akka.routing.ActorRefRoutee
+import com.cooper.osgi.speech.service.Constants.CallEngine
 
 class EngineHandler(
 		name: String,
@@ -16,24 +27,28 @@ class EngineHandler(
 		val configNode: String
 	) extends Actor with IConfigurable {
 
-	private[this] val log = Logging(name)
+	private[this] val log =
+		Utils.getLogger(name)
+
+	private[this] val track =
+		Utils.getTracker(Constants.trackerKey)
 
 	private[this] val kHost = "host"
 	private[this] val kAlias = "alias"
 	private[this] val kVoices = "voices"
-	private[this] val kInstances = "instances"
+	private[this] val kTimeoutWarning = "timeoutWarning"
 
 	private[this] val props = mutable.Map[String, String](
 		kHost -> "localhost:8080",
 		kAlias -> "getTTSFile",
 		kVoices -> "",
-		kInstances -> "4"
+		kTimeoutWarning -> "10"
 	)
 
 	private[this] var engineHost = ""
 	private[this] var engineAlias = ""
 	private[this] var engineVoices = Set[String]()
-	private[this] var instances = 2
+	private[this] var timeoutWarning = 10
 
 	this.pushProperties()
 
@@ -57,7 +72,9 @@ class EngineHandler(
 
 		engineVoices = parseList( props get kVoices getOrElse("") ).toSet
 
-		instances = props get kInstances map { _.toInt } getOrElse(2)
+		timeoutWarning = props.get(kTimeoutWarning).map {
+			in => Try{ in.toInt }.getOrElse(10)
+		}.getOrElse(10)
 	}
 
 	private[this] def parseList(input: String) =
@@ -74,18 +91,41 @@ class EngineHandler(
 
 		val service = url(uri)
 		val task = Http(service)
-		task()
+		val resp = task()
+
+		val rc = resp.getStatusCode()
+		if (rc != 200) {
+			log.error(s"Engine response error $rc from $name")
+			track.put(s"EngineCall($name):Bad", 1l)
+		}
+
+		resp
 	}
 
 	def receive = {
 		case CallEngine(voice: String, speak: String) =>
-			sender ! CallEngineReply(callEngine(voice, speak))
+			val duration = timeoutWarning seconds
+			implicit val timeout = Timeout(duration)
+
+			val task = Future{ callEngine(voice, speak) }
+			val res = Try{Await.result(task, duration)}.flatten
+
+			if (res.isFailure) {
+				log.warn(s"Timeout warning triggered. Engine $name taking longer than expected to process msg")
+				track.put(s"EngineCall($name):Bad", 1l)
+			}
+			else
+				track.put(s"EngineCall($name):Good", 1l)
+
+			sender ! CallEngineReply(res)
 
 		case UpdateProps(props) =>
 			this.props ++= props
 			this.pushProperties()
 
-		case msg => log.error(s"Got invalid message of $msg.")
+		case msg =>
+			log.error(s"Got invalid message of $msg.")
+			track.put(s"BadMsg:$msg", 1l)
 	}
 
 	/**
@@ -110,17 +150,25 @@ class EngineRouter(
 		val configNode: String
 	) extends Actor with IConfigurable {
 
-	private[this] val log = Logging(this.getClass)
+	private[this] val log =
+		Utils.getLogger(this)
 
-	private[this] val engines = mutable.Map[String, String]()
+	private[this] val track =
+		Utils.getTracker(Constants.trackerKey)
+
+	private[this] val engines =
+		mutable.Map[String, String]()
 
 	private[this] val watcher = configService(
 		this,
 		engines
 	).toOption
 
-	private[this] var router: Router = Router(SmallestMailboxRoutingLogic(), Vector.empty[Routee])
-	private[this] val nameSet = mutable.Set[String]()
+	private[this] var router: Router =
+		Router(SmallestMailboxRoutingLogic(), Vector.empty[Routee])
+
+	private[this] val nameSet =
+		mutable.Set[String]()
 
 	private[this] def spawnRoutee(name:String) = {
 		context.actorOf(Props(
@@ -135,20 +183,15 @@ class EngineRouter(
 	private[this] def spawnRouter() {
 		engines.foreach {
 			case (engineName, _) =>
-				println(engineName)
+				log.info(s"Spawning $engineName")
 				if (nameSet contains engineName) ()
 				else {
 					val r = spawnRoutee(engineName)
 					context watch r
 					router = router.addRoutee(r)
 					nameSet add engineName
-
 				}
-				//context watch r
-				//ActorRefRoutee(r)
 		}
-
-		//Router(SmallestMailboxRoutingLogic(), routees)
 	}
 
 	def receive = {
@@ -159,19 +202,20 @@ class EngineRouter(
 			val name = actor.path.name
 			nameSet remove name
 			router = router.removeRoutee(actor)
+
+			log.info(s"EngineHandler $name is terminated, rerouting work.")
+
 			val r = spawnRoutee(name)
 			context watch r
 			router = router.addRoutee(r)
-
-			/*val r = context.actorOf(Props[FileWriter])
-			context watch r
-			router = router.addRoutee(r)*/
 
 		case UpdateProps(props) =>
 			this.engines ++= props
 			spawnRouter()
 
-		case msg => log.error(s"Got invalid message of $msg.")
+		case msg =>
+			log.error(s"Got invalid message of $msg.")
+			track.put(s"BadMsg:$msg", 1l)
 	}
 
 	/**

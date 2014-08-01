@@ -6,11 +6,10 @@ import akka.actor.{ActorRef, PoisonPill, ReceiveTimeout, Actor}
 import akka.pattern.ask
 import com.cooper.osgi.config.IConfigurable
 import scala.concurrent.duration.FiniteDuration
-import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import org.apache.zookeeper._
 import org.apache.zookeeper.ZooDefs.Ids
 import org.apache.zookeeper.data.Stat
-import com.cooper.osgi.config.service.ConfigWatcherEvents.{PutDataMsg, ProcessMsg, ExistsMsg, ProcessResultMsg}
+import com.cooper.osgi.config.service.ConfigWatcherEvents._
 import org.apache.zookeeper.Watcher.Event.KeeperState
 import org.apache.zookeeper.KeeperException.Code
 import scala.util.{Success, Try, Failure}
@@ -32,9 +31,19 @@ class ConfigActor(
 		tickTime: FiniteDuration
 	) extends Actor {
 
-	private[this] val log = Logging(this)
-	private[this] val track = StatTracker(Constants.trackerKey)
-	private[this] val maybe = MaybeLog(log, track)
+	private[this] val log = Utils.getLogger(this)
+	private[this] val track = Utils.getTracker(Constants.trackerKey)
+
+	private[this] def maybe[A](expr: => A): Option[A] = maybe("")(expr)
+	private[this] def maybe[A](msg: String = "")(expr: => A): Option[A] = {
+		Try{ expr } match {
+			case Success(m) => Option(m)
+			case Failure(err) =>
+				log.error(msg, err)
+				track.put(err.getClass.getName, 1l)
+				None
+		}
+	}
 
 	private[this] val encoding = "UTF-8"
 
@@ -157,8 +166,38 @@ class ConfigActor(
 
 	private[this] def setDataSafe(node: String, data: Array[Byte], stat: Stat) = maybe {
 		// If no node exists, create a new one.
-		if (stat == null) createNodeUnsafe(node, data)
+
+		val nodes = node.split('/')
+		if (nodes.length > 1)
+			nodes.foldLeft("") {
+				case (acc, node) =>
+					val path = s"$acc/$node".replaceAll("(/)+", "/")
+					if (path != node) getStat(path) match {
+						case None => createNodeUnsafe(path, Array[Byte]())
+						case _ => ()
+					}
+					path
+			}
+
+		if (stat == null) Try{ createNodeUnsafe(node, data) } match {
+			case Success(_) => ()
+			case Failure(err) =>
+				getStat(node).foreach {
+					stat => setDataUnsafe(node, data, stat.getVersion())
+				}
+		}
 		else setDataUnsafe(node, data, stat.getVersion())
+	}
+
+	private[this] def setOrCreate(node: String, data: Array[Byte]) = {
+		Try {
+			keeper.exists(node, true)
+		} match {
+			case Success(stat) =>
+				setDataSafe(node, data, stat)
+			case Failure(_) =>
+				createNodeUnsafe(node, data)
+		}
 	}
 
 	private[this] def checkUpdate() {
@@ -198,8 +237,25 @@ class ConfigActor(
 				stat => setDataSafe(node, data.getBytes(encoding), stat)
 			}
 
-		case ReceiveTimeout => checkUpdate()
+		case PutNodesMsg(nodes) =>
+			nodes foreach { case NodeStructure.Node(name, value) =>
+				setOrCreate(name, value.getBytes(encoding))
+			}
+
+		case ReceiveTimeout =>
+			keeper.getState() match {
+				case ZooKeeper.States.CLOSED =>
+					keeper = getKeeper
+				case _ => ()
+			}
+
+			checkUpdate()
+
 		case PoisonPill => //keeper.close()
+
+		case msg =>
+			log.error(s"Recieved bad msg of $msg")
+			track.put(s"BadMsg:$msg", 1l)
 	}
 
 	/**
@@ -249,7 +305,7 @@ class ConfigActor(
 				keeper.exists(config.configNode, true, listener, null)
 				None
 		}) map (exists => {
-			if (exists) maybe {
+			if (exists && path.startsWith(config.configNode)) maybe {
 				checkUpdate()
 			}
 		})

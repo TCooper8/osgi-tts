@@ -1,19 +1,18 @@
 package com.cooper.osgi.speech.service
 
 import com.cooper.osgi.sampled.{IAudioReader, IAudioSystem}
-import com.cooper.osgi.io.{IFileSystem, INode}
+import com.cooper.osgi.io.IFileSystem
 import com.cooper.osgi.config.{IConfigurable, IConfigService}
 import com.cooper.osgi.speech.ITtsStaticEngine
 import scala.concurrent.{ExecutionContext, Future}
-import com.cooper.osgi.utils.{StatTracker, Logging}
-import scala.concurrent.duration._
 import scala.collection.mutable
 import ExecutionContext.Implicits.global
+import scala.util.Try
 
 class StaticTtsEngine(
 		audioSystem: IAudioSystem,
 		fileSystem: IFileSystem,
-		watcherService: IConfigService,
+		configService: IConfigService,
 		encoding: String,
 		val configHost: String,
 		val configNode: String
@@ -22,15 +21,17 @@ class StaticTtsEngine(
 		IConfigurable
 	{
 
-	private[this] val log = Logging(this.getClass)
+	private[this] val log =
+		Utils.getLogger(this)
 
-	private[this] val track = StatTracker(Constants.trackerKey)
+	private[this] val track =
+		Utils.getTracker(Constants.trackerKey)
 
 	private[this] val voiceMap =
 		new mutable.HashMap[String, StaticTtsVoiceConfig]()
 			with mutable.SynchronizedMap[String, StaticTtsVoiceConfig]
 
-	private[this] val watcher = watcherService(
+	private[this] val watcher = configService(
 		this,
 		Nil
 	).toOption
@@ -47,7 +48,7 @@ class StaticTtsEngine(
 				if (!voiceMap.contains(key)) {
 					log.info(s"Creating new voice $key")
 					val voice = new StaticTtsVoiceConfig(
-						watcherService,
+						configService,
 						audioSystem,
 						fileSystem,
 						this.configNode,
@@ -66,11 +67,13 @@ class StaticTtsEngine(
 	 * @param phrase The phrase to translate.
 	 * @return The Some(IAudioReader) if successful, else None.
 	 */
-	def translate(voice: String)(phrase: String): Future[Option[IAudioReader]] = {
-		track("Speech:TranslationRequest", 1)
-		Future {
-			voiceMap get voice flatMap (v => v(phrase))
-		}
+	def translate(voice: String)(phrase: String): Future[Try[IAudioReader]] = Future{
+		track.put("Speech:TranslationRequest", 1)
+
+		Try {
+			val m = voiceMap get voice map (v => v(phrase))
+			m.get
+		}.flatten
 	}
 
 	def dispose() {

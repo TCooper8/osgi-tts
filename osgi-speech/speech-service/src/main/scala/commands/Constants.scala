@@ -8,8 +8,7 @@ import scala.collection.JavaConversions.asJavaDictionary
 object Constants {
 	private[this] def defaultProps: Map[String, String] = Map(
 		"configHost" -> "localhost:2181",
-		"configNode" -> "/tts",
-		"synthEngineHost" -> "http://10.130.4.63:8082"
+		"configNode" -> "/tts"
 	)
 
 	def doGetCmd(configAdmin: ConfigurationAdmin, pid: String) = {

@@ -2,8 +2,7 @@ package com.cooper.osgi.speech.service
 
 import com.cooper.osgi.speech.ITtsVoice
 import com.cooper.osgi.sampled.{IAudioReader, IAudioSystem}
-import com.cooper.osgi.io.{IFileSystem, INode}
-import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
+import com.cooper.osgi.io.IFileSystem
 import scala.util.{Try, Success, Failure}
 
 /**
@@ -24,13 +23,14 @@ class StaticTtsVoice(
 		fileSuffix: String
 	) extends ITtsVoice {
 
-	private[this] val log = Logging(key)
+	private[this] val log =
+		Utils.getLogger(this)
 
-	private[this] val track = StatTracker(Constants.trackerKey)
+	private[this] val track =
+		Utils.getTracker(Constants.trackerKey)
 
-	private[this] val maybe = MaybeLog(log, track)
-
-	private[this] val rootFile = fileSystem.getBucket(rootPath).get
+	private[this] val rootFile =
+		fileSystem.getBucket(rootPath).get
 
 	/**
 	 * Pulls an optional IAudioReader object from the audioSystem.
@@ -62,7 +62,7 @@ class StaticTtsVoice(
 	private[this] def toStream(word: String) = {
 		tryToOption {
 			toFile(toKey(word)).flatMap {
-				file => file.content
+				_.content
 			}
 		}
 	}
@@ -72,16 +72,18 @@ class StaticTtsVoice(
 	 * @param phrase The phrase to synthesize.
 	 * @return An Option IAudioReader that contains the synthesized data.
 	 */
-	def apply(phrase: String): Option[IAudioReader] = maybe {
+	def apply(phrase: String): Try[IAudioReader] = Try {
 		val words = (phrase split ' ').toList.reverse
 		val streams = words.map(toStream).flatten
-		reader flatMap (r => r(streams))
+		val out = reader.map { r => r(streams) }
+		out.get
 	}.flatten
 
 	private[this] def tryToOption[A](expr: Try[A]): Option[A] =
 		expr match {
 			case Failure(err) =>
 				log.error("", err)
+				track.put(err.getClass.getName, 1l)
 				None
 			case Success(res) => Some(res)
 		}

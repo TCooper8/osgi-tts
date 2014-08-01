@@ -18,6 +18,14 @@
             <groupId>${project.groupId}</groupId>
             <artifactId>config-service</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.cooper.osgi</groupId>
+            <artifactId>tracking-features</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

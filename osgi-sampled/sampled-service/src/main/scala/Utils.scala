@@ -2,8 +2,11 @@ package com.cooper.osgi.sampled.service
 
 import java.io.{Closeable, InputStream, OutputStream}
 import org.apache.commons.io.IOUtils
+import org.slf4j.LoggerFactory
 
 object Utils {
+	def getLogger(cls: Any) = LoggerFactory.getLogger(cls.getClass)
+
 	/**
 	 * Used to automatically close a resource after function evaluation.
 	 * @param resource The resource to use.

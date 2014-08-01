@@ -1,22 +1,33 @@
 package com.cooper.osgi.config.service
 
 import com.cooper.osgi.config.{IConfigWatcher, IConfigurable, IConfigService}
-import scala.concurrent.duration.FiniteDuration
 import akka.actor.{Props, PoisonPill, ActorSystem}
 import com.typesafe.config.{ConfigFactory, Config}
-import com.cooper.osgi.utils.{MaybeLog, StatTracker, Logging}
 import scala.collection.mutable
 import org.apache.zookeeper.ZooKeeper
 import scala.concurrent.{ExecutionContext, Await, Future}
 import scala.util.{Success, Failure, Try}
 import ExecutionContext.Implicits.global
 import scala.concurrent.duration._
+import com.cooper.osgi.tracking.ITrackerService
 
+class ConfigService(trackerService: ITrackerService) extends IConfigService {
 
-class ConfigService extends IConfigService {
-	private[this] val log = Logging(this.getClass)
-	private[this] val track = StatTracker(Constants.trackerKey)
-	private[this] val maybe = MaybeLog(log, track)
+	Utils.setTrackerService(trackerService)
+
+	private[this] val log = Utils.getLogger(this)
+	private[this] val track = Utils.getTracker(Constants.trackerKey)
+
+	private[this] def maybe[A](expr: => A): Option[A] = maybe("")(expr)
+	private[this] def maybe[A](msg: String = "")(expr: => A): Option[A] = {
+		Try{ expr } match {
+			case Success(m) => Option(m)
+			case Failure(err) =>
+				log.error(msg, err)
+				track.put(err.getClass.getName, 1l)
+				None
+		}
+	}
 
 	private[this] val connTimeout = 2 seconds
 
@@ -112,17 +123,6 @@ class ConfigService extends IConfigService {
 			defaultData,
 			Constants.keeperTickTime
 		)
-
-		/*getKeeper(config.configHost, tickTime) map {
-			keeper =>
-				new ConfigProxy(
-					keeper,
-					actorSystem,
-					config,
-					defaultData,
-					tickTime
-				)
-		}*/
 	}
 
 	def dispose() {

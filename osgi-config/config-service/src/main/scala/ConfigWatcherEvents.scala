@@ -9,6 +9,7 @@ import org.apache.zookeeper.WatchedEvent
 object ConfigWatcherEvents {
 	trait Msg
 	case class PutDataMsg(key: String, data: String) extends Msg
+	case class PutNodesMsg(nodes: Traversable[NodeStructure.Node]) extends Msg
 	case class ProcessMsg(event: WatchedEvent) extends Msg
 	case class ProcessResultMsg(rc: Int, path: String, ctx: Object, stat: Stat) extends Msg
 	case class ExistsMsg(data: Array[Byte]) extends Msg
