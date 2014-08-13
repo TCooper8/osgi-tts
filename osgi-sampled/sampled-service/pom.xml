@@ -15,14 +15,9 @@
     <packaging>bundle</packaging>
 
     <dependencies>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-        </dependency>
+
+        <!-- Project module dependencies -->
+
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>io-model</artifactId>
@@ -30,6 +25,17 @@
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>sampled-model</artifactId>
+        </dependency>
+
+        <!-- Project feature dependencies -->
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
         </dependency>
         <dependency>
             <groupId>org.scala-lang</groupId>

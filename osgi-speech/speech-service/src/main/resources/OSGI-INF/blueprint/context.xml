@@ -97,7 +97,6 @@
         </command>
         <command name="cooper:speech/get-tracked">
             <action class="com.cooper.osgi.speech.commands.GetTrackingCmd" >
-                <argument ref="staticEngineServlet"/>
             </action>
         </command>
         <command name="cooper:speech/load-configfile">

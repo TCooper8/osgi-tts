@@ -49,7 +49,7 @@ case class ConfigProxy(
 	val node: String = config.configNode
 
 	private[this] val actor = actorSystem.actorOf(Props(
-		classOf[ConfigActor],
+		classOf[DynamicConfigActor],
 		keeperPool,
 		this,
 		config,

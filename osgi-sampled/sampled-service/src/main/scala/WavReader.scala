@@ -1,9 +1,9 @@
 package com.cooper.osgi.sampled.service
 
-import java.nio.{ByteOrder, ByteBuffer}
 import com.cooper.osgi.sampled.IAudioReader
 import java.io.{OutputStream, InputStream}
-import scala.util.{Failure, Success, Try}
+import java.nio.{ByteOrder, ByteBuffer}
+import scala.util.{Success, Try}
 
 /**
  * A WavReader is a class that parses a WAVE file and allows for copy to an OutputStream.

@@ -2,7 +2,7 @@ package com.cooper.osgi.config.service
 
 import Constants._
 
-import akka.actor.{ActorRef, PoisonPill, ReceiveTimeout, Actor}
+import akka.actor.{ActorRef, ReceiveTimeout, Actor}
 import akka.pattern.ask
 import com.cooper.osgi.config.IConfigurable
 import scala.concurrent.duration.FiniteDuration
@@ -23,7 +23,7 @@ import scala.concurrent.Await
  * @param defaultData The default data to load into configuration.
  * @param tickTime The config refresh time.
  */
-class ConfigActor(
+class DynamicConfigActor(
 		keeperPool: ActorRef,
   		listener: ConfigProxy,
 		config: IConfigurable,
@@ -31,8 +31,11 @@ class ConfigActor(
 		tickTime: FiniteDuration
 	) extends Actor {
 
-	private[this] val log = Utils.getLogger(this)
-	private[this] val track = Utils.getTracker(Constants.trackerKey)
+	private[this] val log =
+		Utils.getLogger(this)
+
+	private[this] val track =
+		Utils.getTracker(Constants.trackerKey)
 
 	private[this] def maybe[A](expr: => A): Option[A] = maybe("")(expr)
 	private[this] def maybe[A](msg: String = "")(expr: => A): Option[A] = {
@@ -47,7 +50,8 @@ class ConfigActor(
 
 	private[this] val encoding = "UTF-8"
 
-	private[this] var keeper: ZooKeeper = getKeeper
+	private[this] var keeper: ZooKeeper =
+		getKeeper
 
 	/**
 	 * The ZooKeeper to listen to.
@@ -57,7 +61,6 @@ class ConfigActor(
 	this.init()
 
 	keeper.register(listener)
-
 	/**
 	 * Initializes data and loads default data into configuration.
 	 */
@@ -75,20 +78,28 @@ class ConfigActor(
 					path
 			}
 
-		// Pull in any properties already present, else load default data.
+		/**
+		 * Pull in any properties already present.
+		 * Then update the local configurable with the new properties.
+		*/
 
-		val newProps = keeper.getChildren(config.configNode, true).toList.flatMap {
-			child =>
-				val node = toNode(child)
-				getStat(node) match {
-					case Some(stat) =>
-						val data = keeper.getData(node, true, stat)
-						if (data != null) Some(child -> new String(data, encoding))
-						else None
+		val newProps =
+			keeper.getChildren(config.configNode, true)
+			  .toList.flatMap {
+				child =>
+					val node = toNode(child)
+					getStat(node) match {
 
-					case None => None
-				}
-		}
+						/**
+						 * The data does exist, update the local configurable.
+						 */
+						case Some(stat) =>
+							maybe{ keeper.getData(node, true, stat) }
+							.map { data => child -> new String(data, encoding) }
+
+						case _ => None
+					}
+			}
 
 		defaultData foreach {
 			case (child, data) =>
@@ -104,6 +115,12 @@ class ConfigActor(
 		config.configUpdate(newProps)
 	}
 
+	/**
+	 * This is a spin lock to retrieve a ZooKeeper connection from the KeeperPool.
+	 * - This is made to block until retrieval because the actor cannot function
+	 * 	without a Keeper.
+	 * @return
+	 */
 	private[this] def getKeeper: ZooKeeper = {
 		Try {
 			val task = keeperPool ? ZooKeeperPool.GetKeeper(config.configHost)
@@ -113,28 +130,38 @@ class ConfigActor(
 			}
 		}.flatten match {
 			case Success(keeper) => keeper
-			case Failure(error) =>
-				log.error("", error)
-				null
+			case Failure(err) =>
+				log.error("", err)
+				track.put(err.getClass.getName, 1)
+
+				getKeeper
+				/**
+				* This will enter into a recursive definition.
+				* This behavior is intended, because the actor cannot otherwise continue with
+				 * it's functionality.
+				*/
 		}
 	}
 
 	/**
 	 * Represents the current nodes' stats.
 	 */
-	private[this] var curStats = getPropStats()
+	private[this] var curStats =
+		getPropStats()
 
 	checkUpdate()
 
 	/**
 	 * Converts a given key to an absolute node.
 	 */
-	private[this] def toNode (key: String) = s"${config.configNode}/$key"
+	private[this] def toNode (key: String) =
+		s"${config.configNode}/$key"
 
 	/**
 	 * Peels the last node in the sequence off of a node path.
 	 */
-	private[this] def toKey (node: String) = node.split('/').last
+	private[this] def toKey (node: String) =
+		node.split('/').last
 
 	private[this] def getStat(node: String) = {
 		Try {
@@ -251,8 +278,6 @@ class ConfigActor(
 
 			checkUpdate()
 
-		case PoisonPill => //keeper.close()
-
 		case msg =>
 			log.error(s"Recieved bad msg of $msg")
 			track.put(s"BadMsg:$msg", 1l)
@@ -299,8 +324,11 @@ class ConfigActor(
 		(Code.get(rc) match {
 			case Code.OK => Some(true)
 			case Code.NONODE => Some(false)
-			case Code.SESSIONEXPIRED => None
-			case Code.NOAUTH => listener.closing(rc); Some(true)
+			case Code.SESSIONEXPIRED =>
+				keeper = getKeeper
+				None
+
+			case Code.NOAUTH => listener.closing(rc); Some(false)
 			case _ =>
 				keeper.exists(config.configNode, true, listener, null)
 				None

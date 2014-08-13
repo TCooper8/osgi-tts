@@ -15,13 +15,19 @@
     <packaging>bundle</packaging>
 
     <dependencies>
-        <dependency>
-            <groupId>org.scala-lang</groupId>
-            <artifactId>scala-library</artifactId>
-        </dependency>
+
+        <!-- Project module dependencies -->
+
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>tracking-model</artifactId>
+        </dependency>
+
+        <!-- Third party dependencies -->
+
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
         </dependency>
         <dependency>
             <groupId>com.typesafe.akka</groupId>

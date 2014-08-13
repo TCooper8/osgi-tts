@@ -1,7 +1,6 @@
 package com.cooper.osgi.speech.service
 
-import akka.actor.{PoisonPill, Terminated, Props, Actor}
-import com.cooper.osgi.speech.service.Constants._
+import akka.actor._
 import scala.util.Try
 import akka.routing._
 import com.cooper.osgi.config.{IConfigService, IConfigurable}
@@ -10,15 +9,22 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import akka.util.Timeout
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
-import akka.io.Udp.SO.Broadcast
-import com.cooper.osgi.speech.service.Constants.CallEngineReply
 import scala.Some
-import com.cooper.osgi.speech.service.Constants.UpdatePropsMap
+import akka.routing.Router
+import com.ning.http.client.Response
+import scala.Some
 import akka.routing.Router
 import akka.actor.Terminated
-import com.cooper.osgi.speech.service.Constants.UpdateProps
-import akka.routing.ActorRefRoutee
-import com.cooper.osgi.speech.service.Constants.CallEngine
+
+object EngineMsg {
+	trait Msg
+
+	trait Reply
+
+	case class CallEngine(voice: String, speak: String) extends Msg
+
+	case class CallEngineReply(data: Try[Response]) extends Reply
+}
 
 class EngineHandler(
 		name: String,
@@ -38,44 +44,52 @@ class EngineHandler(
 	private[this] val kVoices = "voices"
 	private[this] val kTimeoutWarning = "timeoutWarning"
 
-	private[this] val props = mutable.Map[String, String](
+	/*private[this] val props = mutable.Map[String, String](
 		kHost -> "localhost:8080",
 		kAlias -> "getTTSFile",
 		kVoices -> "",
 		kTimeoutWarning -> "10"
-	)
+	)*/
 
-	private[this] var engineHost = ""
-	private[this] var engineAlias = ""
+	private[this] var engineHost = "localhost:8080"
+	private[this] var engineAlias = "getTTSFile"
 	private[this] var engineVoices = Set[String]()
 	private[this] var timeoutWarning = 10
 
-	this.pushProperties()
-
 	private[this] val watcher = configService(
 		this,
-		props
+		Iterable(
+			kHost -> engineHost,
+			kAlias -> engineAlias,
+			kVoices -> engineVoices.mkString(","),
+			kTimeoutWarning -> timeoutWarning.toString
+		)
 	).toOption
 	if (watcher.isEmpty)
 		log.error("Watcher is undefined.")
-	
-	private[this] def pushProperties() {
-		engineHost = {
-			val host = props get kHost getOrElse ("")
-			if (host.startsWith("http://")) host else s"http://$host"
+
+	private[this] val propHandleMap = Map(
+		kHost -> { host:String =>
+			if (host.startsWith("http://"))
+				engineHost = host
+			else engineHost = s"http://$host"
+		},
+		kAlias -> { alias:String =>
+			if (alias.startsWith("/"))
+				engineAlias = alias
+			else engineAlias = s"/$alias"
+		},
+		kVoices -> { str: String =>
+			Try{ parseList(str).toSet }.map {
+				set => engineVoices = set
+			}
+		},
+		kTimeoutWarning -> { str: String =>
+			Try{ str.toInt }.map {
+				v => timeoutWarning = v
+			}
 		}
-
-		engineAlias = {
-			val alias = props get kAlias getOrElse ("")
-			if (alias.startsWith("/")) alias else s"/$alias"
-		}
-
-		engineVoices = parseList( props get kVoices getOrElse("") ).toSet
-
-		timeoutWarning = props.get(kTimeoutWarning).map {
-			in => Try{ in.toInt }.getOrElse(10)
-		}.getOrElse(10)
-	}
+	)
 
 	private[this] def parseList(input: String) =
 		input.split(",").map {
@@ -99,11 +113,22 @@ class EngineHandler(
 			track.put(s"EngineCall($name):Bad", 1l)
 		}
 
+		if (resp.getContentType == null) {
+			val msg =
+				s"""
+				   |Engine response ContentType from $name is null.
+				   |Request: voice=$voice, speak=$speak.
+				   |Uri: $uri
+				   |StatusCode: $rc
+				 """.stripMargin
+			log.warn(msg)
+		}
+
 		resp
 	}
 
 	def receive = {
-		case CallEngine(voice: String, speak: String) =>
+		case EngineMsg.CallEngine(voice: String, speak: String) =>
 			val duration = timeoutWarning seconds
 			implicit val timeout = Timeout(duration)
 
@@ -117,11 +142,13 @@ class EngineHandler(
 			else
 				track.put(s"EngineCall($name):Good", 1l)
 
-			sender ! CallEngineReply(res)
+			sender ! EngineMsg.CallEngineReply(res)
 
-		case UpdateProps(props) =>
-			this.props ++= props
-			this.pushProperties()
+		case ActorMsg.UpdateProps(props) =>
+			log.info(s"Updating with $props")
+			props.foreach {
+				case (k, v) => propHandleMap.get(k).foreach{ _.apply(v) }
+			}
 
 		case msg =>
 			log.error(s"Got invalid message of $msg.")
@@ -133,14 +160,19 @@ class EngineHandler(
 	 * @param props The map of updates that have occurred.
 	 */
 	override def configUpdate(props: Iterable[(String, String)]) {
-		log.info(s"Updated $props")
-		self ! UpdateProps(props)
+		self ! ActorMsg.UpdateProps(props)
 	}
 
 	override def postStop() {
-		log.info(s"Resetting.")
+		log.info(s"Shutting down $name.")
 		watcher foreach { _.dispose() }
 		super.postStop()
+	}
+
+	override def preRestart(reason: Throwable, message: Option[Any]) {
+		log.info(s"Resetting $name.")
+		message foreach { self forward _ }
+		watcher foreach { _.dispose() }
 	}
 }
 
@@ -156,12 +188,12 @@ class EngineRouter(
 	private[this] val track =
 		Utils.getTracker(Constants.trackerKey)
 
-	private[this] val engines =
-		mutable.Map[String, String]()
+	/*private[this] val engines =
+		mutable.Map[String, String]()*/
 
 	private[this] val watcher = configService(
 		this,
-		engines
+		Nil
 	).toOption
 
 	private[this] var router: Router =
@@ -177,10 +209,10 @@ class EngineRouter(
 			configService,
 			configHost,
 			configNode + s"/$name"
-		), name)
+		))
 	}
 
-	private[this] def spawnRouter() {
+	private[this] def spawnRouter(engines: Iterable[(String,String)]) {
 		engines.foreach {
 			case (engineName, _) =>
 				log.info(s"Spawning $engineName")
@@ -195,7 +227,7 @@ class EngineRouter(
 	}
 
 	def receive = {
-		case work: CallEngine =>
+		case work: EngineMsg.CallEngine =>
 			router.route(work, sender())
 
 		case Terminated(actor) =>
@@ -209,9 +241,10 @@ class EngineRouter(
 			context watch r
 			router = router.addRoutee(r)
 
-		case UpdateProps(props) =>
-			this.engines ++= props
-			spawnRouter()
+		case ActorMsg.UpdateProps(props) =>
+			log.info(s"Updating with $props")
+			//this.engines ++= props
+			spawnRouter(props)
 
 		case msg =>
 			log.error(s"Got invalid message of $msg.")
@@ -223,7 +256,7 @@ class EngineRouter(
 	 * @param props The map of updates that have occurred.
 	 */
 	def configUpdate(props: Iterable[(String, String)]) {
-		self ! UpdateProps(props)
+		self ! ActorMsg.UpdateProps(props)
 	}
 
 	override def postStop() {

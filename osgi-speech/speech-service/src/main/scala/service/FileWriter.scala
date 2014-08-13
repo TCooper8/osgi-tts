@@ -1,11 +1,22 @@
 package com.cooper.osgi.speech.service
 
 import akka.actor.{Terminated, Props, Actor}
-import com.cooper.osgi.speech.service.Constants.{UpdateWriterCount, WriteFileMsg}
 import akka.routing.{SmallestMailboxRoutingLogic, Router, ActorRefRoutee}
 import scala.util.{Success, Failure}
+import com.cooper.osgi.io.IBucket
+import java.io.InputStream
 
-class FileWriter() extends Actor {
+object FileMsg {
+	trait Msg
+
+	trait Reply
+
+	case class UpdateWriterCount(n: Int) extends Msg
+
+	case class WriteFileMsg(bucket: IBucket, inStream: InputStream, key: String) extends Msg
+}
+
+class FileWriter(fileCachedField: SynchronizedBitField) extends Actor {
 
 	private[this] val log =
 		Utils.getLogger(this.getClass)
@@ -14,7 +25,7 @@ class FileWriter() extends Actor {
 		Utils.getTracker(Constants.trackerKey)
 
 	def receive = {
-		case WriteFileMsg(bucket, inStream, key) =>
+		case FileMsg.WriteFileMsg(bucket, inStream, key) =>
 			bucket.write(inStream, key) match {
 				case Failure(error) =>
 					log.error(s"Error writing $key to file ${bucket.path}", error)
@@ -22,6 +33,7 @@ class FileWriter() extends Actor {
 
 				case Success(_) =>
 					track.put("FileWrites", 1l)
+					fileCachedField.put(key.hashCode())
 					()
 			}
 			inStream.close()
@@ -33,7 +45,8 @@ class FileWriter() extends Actor {
 }
 
 class FileRouter(
-		writerInstances: Int
+		writerInstances: Int,
+		fileCachedField: SynchronizedBitField
 	) extends Actor {
 
 	private[this] val log =
@@ -47,7 +60,10 @@ class FileRouter(
 
 	private[this] def makeRouter(n:Int) = {
 		val routees = Vector.fill(n) {
-			val r = context.actorOf(Props[FileWriter])
+			val r = context.actorOf(Props(
+				classOf[FileWriter],
+				fileCachedField
+			))
 			context watch r
 			ActorRefRoutee(r)
 		}
@@ -55,10 +71,10 @@ class FileRouter(
 	}
 
 	def receive = {
-		case UpdateWriterCount(n) =>
+		case FileMsg.UpdateWriterCount(n) =>
 			router = makeRouter(n)
 
-		case work: WriteFileMsg =>
+		case work: FileMsg.WriteFileMsg =>
 			router.route(work, sender())
 
 		case Terminated(actor) =>

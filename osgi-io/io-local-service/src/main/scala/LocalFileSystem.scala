@@ -1,7 +1,7 @@
 package com.cooper.osgi.io.local
 
 import com.cooper.osgi.io.{INode, IBucket, ILocalFileSystem}
-import scala.util.{Random, Try}
+import scala.util.{Failure, Success, Random, Try}
 import java.io.{FileInputStream, FileOutputStream, File, InputStream}
 import java.util.Date
 import java.nio.file.Paths
@@ -11,7 +11,7 @@ class LocalFileSystem() extends ILocalFileSystem {
 
 	def createBucket(path: String): Try[IBucket] = Try {
 		val file = new File(path)
-		file.mkdirs()
+		file.mkdir()
 		if (file.exists)
 			assert(file.isDirectory, s"File $path is not a directory.")
 		else
@@ -70,22 +70,31 @@ class LocalFileSystem() extends ILocalFileSystem {
 
 	def write(bucketName: String, inStream: InputStream, key: String): Try[INode] = Try {
 		val dst = new File(bucketName, key)
-		val tmp = new File(bucketName, s"${System.nanoTime % Random.nextLong}$key")
+		val parent = dst.getParentFile()
+		parent.mkdir()
+
+		val tmp = new File(parent, s"${System.nanoTime % Random.nextLong}${dst.getName}")
 		val outStream = new FileOutputStream(tmp)
 
 		val res = Try {
 			val mBytes = inStream.available()
 			val nBytes = Utils.copy(inStream, outStream)
 
-			assert(nBytes == mBytes, s"Partial failure when copying stream to $key. $nBytes copied, $mBytes expected.")
-			assert(tmp.renameTo(dst), s"Unable to rename $tmp to $dst")
-
-			LocalNode(this, bucketName, key)
+			(mBytes, nBytes)
 		}
 
 		outStream.flush()
 		outStream.close()
-		res
+
+		res match {
+			case Success((mBytes, nBytes)) => Try {
+				assert(nBytes == mBytes, s"Partial failure when copying stream to $key. $nBytes copied, $mBytes expected.")
+				assert(tmp.renameTo(dst), s"Unable to rename $tmp to $dst")
+
+				LocalNode(this, bucketName, key)
+			}
+			case Failure(err) => Failure(err)
+		}
 	}.flatten
 
 	def listBuckets: Try[Iterable[IBucket]] = Try {

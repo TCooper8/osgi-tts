@@ -2,11 +2,10 @@ package com.cooper.osgi.speech.commands
 
 import org.apache.karaf.shell.commands.{Argument, Command}
 import org.apache.karaf.shell.console.AbstractAction
-import com.cooper.osgi.speech.service.TtsProxyServlet
 import com.cooper.osgi.speech.service.{Utils => ServiceUtils, Constants => ServiceConstants}
 
 @Command(scope = "cooper:speech", name = "get-track", description = "Gets the current config node.")
-class GetTrackingCmd(proxy: TtsProxyServlet) extends AbstractAction {
+class GetTrackingCmd() extends AbstractAction {
 
 	val track = ServiceUtils.getTracker(ServiceConstants.trackerKey)
 
