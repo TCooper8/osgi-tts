@@ -5,6 +5,12 @@ import scala.collection.mutable
 import scala.collection.JavaConversions._
 import scala.util.{Success, Try}
 
+/**
+ * Naive scala wrapper for an LRUMap.
+ * @param maxSize The maximum map size.
+ * @tparam A Generic key type.
+ * @tparam B Generic value type.
+ */
 class LruMap[A, B](maxSize: Int) extends mutable.Map[A, B] {
 	private[this] val map = new LRUMap(maxSize).asInstanceOf[java.util.AbstractMap[A, B]]
 

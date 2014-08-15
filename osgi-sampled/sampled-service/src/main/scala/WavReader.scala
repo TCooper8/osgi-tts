@@ -12,6 +12,8 @@ import scala.util.{Success, Try}
  * @param parent The parent WavReader is the next WAVE node in sequence to read data from.
  */
 class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
+	val chainLength: Int = parent.chainLength + 1
+
 	// Header information for the WAVE file chunk.
 	val chunkID: String = getString(4)
 	val chunkSize: Int = getLEInt() + parent.chunkSize
@@ -150,6 +152,9 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
  * This is the zero state of the WavReader monad.
  */
 object WavReader extends IWavReader {
+
+	val chainLength: Int = 0
+
 	val chunkID: String = "RIFF"
 	val chunkSize: Int = 0
 	val format: String = "WAVE"

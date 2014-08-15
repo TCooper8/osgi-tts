@@ -30,6 +30,12 @@ case class StaticTtsVoice(
 	private[this] val kFilePrefix = "filePrefix"
 
 	/**
+	 * Tracking keys.
+	 */
+
+	val partialTranslationFailure = "partialTranslationFailure"
+
+	/**
 	 * Configuration variables.
 	 */
 
@@ -114,10 +120,17 @@ case class StaticTtsVoice(
 			// Attempt to open each word as a file, and pull the data stream.
 			// tryToOption will log the failures, this embraces partial translation failure.
 			val streams = words.flatMap { word =>
-				tryToOption {
+				val res = tryToOption {
 					val key = s"$prefix$word$suffix"
 					bucket.read(key).flatMap{ _.content }
 				}
+
+				//Sometimes the file cannot be pulled for translation, the proxy needs to know about this.
+				if (res.isEmpty) {
+					log.warn(s"The file stream of $word could not be pulled for translation.")
+					track.put(partialTranslationFailure, 1)
+				}
+				res
 			}
 
 			// Apply the list of streams to the reader.

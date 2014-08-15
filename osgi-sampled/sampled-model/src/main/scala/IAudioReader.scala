@@ -9,6 +9,12 @@ import scala.util.Try
  * @param extensionKey The unique key associated with the IAudioReader
  */
 abstract class IAudioReader(val extensionKey: String) extends Closeable with AutoCloseable {
+
+	/**
+	 * Represents the length of the IAudioReader chain.
+	 */
+	val chainLength: Int
+
 	/**
 	 * Binds a stream to this IAudioReader's sequence.
 	 * @param inStream The stream to bind.

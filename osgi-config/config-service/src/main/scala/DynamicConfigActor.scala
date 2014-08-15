@@ -250,7 +250,10 @@ class DynamicConfigActor(
 		}
 
 		curStats = newStats
-		config.configUpdate(newProps)
+
+		// Only update if there is actually data.
+		if (newProps.nonEmpty)
+			config.configUpdate(newProps)
 	}
 
 	def receive = {

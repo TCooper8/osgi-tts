@@ -120,11 +120,6 @@ class TtsProxyServlet(
 				bucket match {
 					// Populate the bit field.
 					case Success(bucket) =>
-						bucket.listNodes.foreach {
-							_.foreach {
-								node => fileCachedField.put(node.key.hashCode())
-							}
-						}
 
 						// Update the state.
 						state.rootPath = path
@@ -212,6 +207,10 @@ class TtsProxyServlet(
 
 	private[this] val speechSuccess = "StaticTranslation:Good"
 	private[this] val speechFailure = "StaticTranslation:Bad"
+	private[this] val cacheHit = "Cache:Hit"
+	private[this] val cacheMiss = "Cache:Miss"
+	private[this] val bitFieldHit = "BitField:Miss"
+	private[this] val bitFieldMiss = "BitField:Miss"
 
 	private[this] val audioContentType = "audio/x-wav"
 
@@ -269,7 +268,6 @@ class TtsProxyServlet(
 
 				copyToResp(respStream, resp)
 
-				log.info(s"Writing $key to file.")
 				fileWriter ! FileMsg.WriteFileMsg(bucket, fileStream, key)
 
 				track.put("HttpResp:200", 1)
@@ -283,7 +281,15 @@ class TtsProxyServlet(
 	private[this] def copyFromFile(bucket: IBucket, key: String, resp: HttpServletResponse) = {
 		bucket.read(key)
 		  .flatMap{ _.content }
-		  .flatMap{ content => copyToResp(content, resp) }
+		  .flatMap{ content =>
+		  		// Recover the cache if it does not contain the key.
+		  		if (!cache.contains(key))
+					fileWriter ! FileMsg.PullFileToF(
+						bucket, key,
+						{ (data: Array[Byte]) => cache.put(key, data) }
+					)
+				copyToResp(content, resp)
+		}
 	}
 	def hash(s: String, crypto:String) = {
 		val cryptoInstance = MessageDigest.getInstance(crypto)
@@ -304,7 +310,7 @@ class TtsProxyServlet(
 			(state.bucket, fileKey)
 		}
 
-		def callEngine() = Try {
+		def callEngine(): Unit = Try {
 			val task = engineRouter ? EngineMsg.CallEngine(voice, speak)
 
 			Await.result(task, timeoutDur) match {
@@ -321,8 +327,8 @@ class TtsProxyServlet(
 				case EngineMsg.CallEngineReply(Failure(err)) =>
 					log.error(s"Unable to call engine ${err.getMessage}")
 					track.put("CallEngineFailure", 1)
-					track.put("HttpResp:500", 1)
-					resp.sendError(500)
+
+					checkCache() // Try again until failure
 
 				case _ =>
 					log.error("Engine response was invalid.")
@@ -332,33 +338,46 @@ class TtsProxyServlet(
 			}
 		} match {
 			case Failure(err) =>
-				log.error("", err)
+				log.error(err.getMessage())
 				track.put(err.getClass.getName, 1)
+				track.put("HttpResp:500", 1)
+
+				resp.sendError(500)
 
 			case Success(_) => ()
 		}
 
-		val cacheLookup = this.cache.get(fileKey)
+		def checkCache(): Unit = {
 
-		if (cacheLookup.isDefined) {
-			val respStream = new ByteArrayInputStream(cacheLookup.get)
-			copyToResp(respStream, resp)
-		}
-		else if (fileCachedField.get(fileKey.hashCode()) == 1)
-			copyFromFile(bucket, fileKey, resp) match {
-				case Success(_) =>
-					track.put("FileRead:Success", 1)
-					track.put("HttpResp:200", 1)
-					fileCachedField.put(fileKey.hashCode())
+			val cacheLookup = this.cache.get(fileKey)
 
-				case Failure(_) =>
-					track.put("BitFieldMishit", 1)
-					callEngine()
+			if (cacheLookup.isDefined) {
+				track.put(cacheHit, 1)
+				val respStream = new ByteArrayInputStream(cacheLookup.get)
+				copyToResp(respStream, resp)
 			}
-		else {
-			callEngine()
-			track.put("BitFieldSaves", 1)
+			else if (fileCachedField.get(fileKey.hashCode()).isDefined) {
+				track.put(cacheMiss, 1)
+
+				copyFromFile(bucket, fileKey, resp) match {
+					case Success(_) =>
+						track.put("FileRead:Success", 1)
+						track.put("HttpResp:200", 1)
+						fileCachedField.put(fileKey.hashCode())
+
+					case Failure(_) =>
+						track.put(bitFieldMiss, 1)
+						callEngine()
+				}
+			}
+			else {
+				track.put(cacheMiss, 1)
+				callEngine()
+				track.put(bitFieldHit, 1)
+			}
 		}
+
+		checkCache()
 	}
 
 	private[this] def handleSpell
@@ -368,8 +387,20 @@ class TtsProxyServlet(
 			val task = staticEngine.translate(voice)(speak)
 			Await.result(task, timeoutDur) match {
 				case Success(reader) =>
-					tryCopyReader(resp, reader)
-					track.put("HttpResp:200", 1)
+					if (reader.chainLength == 0 && speak.replaceAll("/s*", "").length > 0) {
+						resp.sendError(500, "Unable to translate request.")
+						track.put("HttpResp:500", 1)
+						track.put(speechFailure, 1)
+						log.error(
+							s"""
+							  |Encountered an error in static translation.
+							  |Unable to translate request of $speak, $voice."
+							""".stripMargin)
+					} else {
+						tryCopyReader(resp, reader)
+						track.put("HttpResp:200", 1)
+						track.put(speechSuccess, 1)
+					}
 
 				case Failure(err) =>
 					resp.sendError(501)
@@ -378,8 +409,7 @@ class TtsProxyServlet(
 					track.put("HttpResp:501", 1)
 			}
 		} match {
-			case Success(_) =>
-				track.put(speechSuccess, 1)
+			case Success(_) => ()
 			case Failure(err) =>
 				track.put(speechFailure, 1)
 				track.put(err.getClass.getName, 1)

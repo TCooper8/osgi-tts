@@ -1,7 +1,7 @@
 package com.cooper.osgi.speech.service
 
 import akka.actor._
-import scala.util.Try
+import scala.util.{Failure, Try}
 import akka.routing._
 import com.cooper.osgi.config.{IConfigService, IConfigurable}
 import scala.collection.mutable
@@ -9,13 +9,14 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import akka.util.Timeout
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
-import scala.Some
-import akka.routing.Router
 import com.ning.http.client.Response
 import scala.Some
 import akka.routing.Router
 import akka.actor.Terminated
 
+/**
+ * Engine actor messages.
+ */
 object EngineMsg {
 	trait Msg
 
@@ -26,6 +27,13 @@ object EngineMsg {
 	case class CallEngineReply(data: Try[Response]) extends Reply
 }
 
+/**
+ * Represents an actor for a single engine handler.
+ * @param name The name of the engine.
+ * @param configService The configuration server.
+ * @param configHost The configuration host.
+ * @param configNode The configuration node to watch.
+ */
 class EngineHandler(
 		name: String,
 		configService: IConfigService,
@@ -39,23 +47,27 @@ class EngineHandler(
 	private[this] val track =
 		Utils.getTracker(Constants.trackerKey)
 
+	/**
+	 * Configuration keys
+	 */
+
 	private[this] val kHost = "host"
 	private[this] val kAlias = "alias"
 	private[this] val kVoices = "voices"
 	private[this] val kTimeoutWarning = "timeoutWarning"
 
-	/*private[this] val props = mutable.Map[String, String](
-		kHost -> "localhost:8080",
-		kAlias -> "getTTSFile",
-		kVoices -> "",
-		kTimeoutWarning -> "10"
-	)*/
+	/**
+	 * Mutable configuration state.
+	 */
 
 	private[this] var engineHost = "localhost:8080"
 	private[this] var engineAlias = "getTTSFile"
 	private[this] var engineVoices = Set[String]()
 	private[this] var timeoutWarning = 10
 
+	/**
+	 * Config watcher.
+	 */
 	private[this] val watcher = configService(
 		this,
 		Iterable(
@@ -68,6 +80,9 @@ class EngineHandler(
 	if (watcher.isEmpty)
 		log.error("Watcher is undefined.")
 
+	/**
+	 * Maps configuration keys to functionality.
+	 */
 	private[this] val propHandleMap = Map(
 		kHost -> { host:String =>
 			if (host.startsWith("http://"))
@@ -101,11 +116,15 @@ class EngineHandler(
 	private[this] def callEngine(voice:String, speak:String) = Try{
 		import dispatch._
 
+		// Create a uri for the engine to handle.
 		val uri = s"$engineHost$engineAlias?voice=$voice&speak=${speak.replace(" ", "%20")}"
 
+		// Create the http request.
 		val service = url(uri)
 		val task = Http(service)
 		val resp = task()
+
+		// Validate the output, raise any warnings.
 
 		val rc = resp.getStatusCode()
 		if (rc != 200) {
@@ -188,20 +207,32 @@ class EngineRouter(
 	private[this] val track =
 		Utils.getTracker(Constants.trackerKey)
 
-	/*private[this] val engines =
-		mutable.Map[String, String]()*/
-
+	/**
+	 * The configuration watcher.
+	 */
 	private[this] val watcher = configService(
 		this,
 		Nil
 	).toOption
 
+	/**
+	 * The actor router for routing messages.
+	 */
 	private[this] var router: Router =
 		Router(SmallestMailboxRoutingLogic(), Vector.empty[Routee])
 
+	/**
+	 * For tracking engines already in memory.
+	 * - This is to prevent spinning up multiple config watchers for the same engine.
+	 */
 	private[this] val nameSet =
 		mutable.Set[String]()
 
+	/**
+	 * Spawns a single engine handler.
+	 * @param name The engine name.
+	 * @return Returns a handler for a configurable remote engine.
+	 */
 	private[this] def spawnRoutee(name:String) = {
 		context.actorOf(Props(
 			classOf[EngineHandler],
@@ -212,16 +243,26 @@ class EngineRouter(
 		))
 	}
 
+	/**
+	 * Fills the router with the routees found in the given Iterable.
+	 * @param engines Contains the routees information.
+	 */
 	private[this] def spawnRouter(engines: Iterable[(String,String)]) {
 		engines.foreach {
 			case (engineName, _) =>
 				log.info(s"Spawning $engineName")
 				if (nameSet contains engineName) ()
 				else {
-					val r = spawnRoutee(engineName)
-					context watch r
-					router = router.addRoutee(r)
-					nameSet add engineName
+					Try {
+						val r = spawnRoutee(engineName)
+						context watch r
+						router = router.addRoutee(r)
+						nameSet add engineName
+					} match {
+						case Failure(err) =>
+							log.error(s"Error spawning engine $engineName", err)
+						case _ => ()
+					}
 				}
 		}
 	}

@@ -30,6 +30,14 @@ object Utils {
 		finally resource.close()
 	}
 
+	def using2[A <: Closeable, B <: Closeable, C](resourceA: A, resourceB: B) (f: (A, B) => C) = {
+		try f(resourceA, resourceB)
+		finally {
+			resourceA.close()
+			resourceB.close()
+		}
+	}
+
 	/**
 	 * Copies the contents of the input stream to the output stream.
 	 * @return Returns the number of bytes transferred.

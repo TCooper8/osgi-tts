@@ -2,9 +2,9 @@ package com.cooper.osgi.speech.service
 
 import akka.actor.{Terminated, Props, Actor}
 import akka.routing.{SmallestMailboxRoutingLogic, Router, ActorRefRoutee}
-import scala.util.{Success, Failure}
+import scala.util.{Try, Success, Failure}
 import com.cooper.osgi.io.IBucket
-import java.io.InputStream
+import java.io.{ByteArrayOutputStream, InputStream}
 
 object FileMsg {
 	trait Msg
@@ -14,6 +14,8 @@ object FileMsg {
 	case class UpdateWriterCount(n: Int) extends Msg
 
 	case class WriteFileMsg(bucket: IBucket, inStream: InputStream, key: String) extends Msg
+
+	case class PullFileToF(bucket: IBucket, filename: String, f: Array[Byte] => Any) extends Msg
 }
 
 class FileWriter(fileCachedField: SynchronizedBitField) extends Actor {
@@ -24,7 +26,25 @@ class FileWriter(fileCachedField: SynchronizedBitField) extends Actor {
 	private[this] val track =
 		Utils.getTracker(Constants.trackerKey)
 
+	private[this] def streamToByteArray(is: InputStream) = Try{
+		val iBytes = is.available()
+		Utils.using2(is, new ByteArrayOutputStream()) { case (is, os) =>
+			val fBytes = Utils.copy(is, os)
+			os.flush()
+
+			if(iBytes != fBytes) {
+				log.warn(s"Bytes copied do not match. StreamLength:$iBytes -> Copied:$fBytes")
+				None
+			} else {
+				Option(os.toByteArray())
+			}
+		}
+	}
+
 	def receive = {
+		/**
+		 * Writes the stream to the bucket under the key.
+		 */
 		case FileMsg.WriteFileMsg(bucket, inStream, key) =>
 			bucket.write(inStream, key) match {
 				case Failure(error) =>
@@ -37,6 +57,35 @@ class FileWriter(fileCachedField: SynchronizedBitField) extends Actor {
 					()
 			}
 			inStream.close()
+
+		/**
+		 * Reads the filename to an array of bytes, and passes it into the function f.
+		 */
+		case FileMsg.PullFileToF(bucket, filename, f) =>
+			bucket.read(filename).flatMap { node =>
+				node.content.flatMap {
+					content => streamToByteArray(content)
+				}
+			} match {
+				case Success(Some(data)) =>
+					val _ = f(data)
+					track.put("PullFileToMap:StreamCopy:Success", 1)
+
+				case Success(None) =>
+					track.put("PullFileToMap:StreamCopy:Fail", 1)
+					log.warn(
+						s"""
+						   |Copy failure for :
+						   |Bucket: ${bucket.key}
+						   |File: $filename
+						 """.stripMargin
+					)
+
+
+				case Failure(err) =>
+					track.put("PullFileToMap:StreamCopy:Fail", 1)
+
+			}
 
 		case msg =>
 			log.error(s"FileWriter Got invalid message of $msg.")
@@ -75,6 +124,9 @@ class FileRouter(
 			router = makeRouter(n)
 
 		case work: FileMsg.WriteFileMsg =>
+			router.route(work, sender())
+
+		case work: FileMsg.PullFileToF =>
 			router.route(work, sender())
 
 		case Terminated(actor) =>
