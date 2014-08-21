@@ -10,7 +10,7 @@ object NodeStructure {
 		override def compare(that: Node): Int = name compare that.name
 	}
 
-	private[this] def toNodeStructure(cfg: Config) = Try {
+	private[this] def toNodeStructure(rootNode: String, cfg: Config) = Try {
 		cfg.entrySet().map {
 			entry =>
 				val name = "/" + entry.getKey().replace('.', '/')
@@ -19,15 +19,15 @@ object NodeStructure {
 				println(s"Node name: -> $name")
 				println(s"Node value: -> $value")
 
-				Node(name, value)
+				Node(rootNode + s"$name", value)
 		}
 	}
 
-	def parse(inStream: InputStream): Try[Traversable[Node]] = Try {
+	def parse(rootNode: String, inStream: InputStream): Try[Traversable[Node]] = Try {
 		val reader = new InputStreamReader(inStream)
 		val res =
 			Try {ConfigFactory.parseReader(reader) }
-			.flatMap(toNodeStructure)
+			.flatMap{ res => toNodeStructure(rootNode, res) }
 
 		reader.close()
 		res

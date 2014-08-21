@@ -94,8 +94,8 @@ case class ConfigProxy(
 	 * - Parses the InputStream using 'typesafe.config.ConfigFactory.parse'.
 	 * @param inStream The stream of data.
 	 */
-	def putData(inStream: InputStream): Try[Unit] = Try{
-		NodeStructure.parse(inStream).map { nodes =>
+	def putData(rootNode: String, inStream: InputStream): Try[Unit] = Try{
+		NodeStructure.parse(rootNode, inStream).map { nodes =>
 			actor ! PutNodesMsg(nodes)
 		}
 	}.flatten

@@ -40,7 +40,7 @@ case class StaticTtsVoice(
 	 */
 
 	private[this] var rootPath =
-		System.getProperty("user.dir") + configNode
+		"tts-" + configNode
 
 	private[this] var fileSuffix =
 		".wav"
@@ -53,7 +53,6 @@ case class StaticTtsVoice(
 
 	private[this] var bucket =
 		fileSystem.getBucket(rootPath)
-		.orElse { fileSystem.createBucket(rootPath) }
 
 	/**
 	 * This maps configuration keys to functionality within this class.

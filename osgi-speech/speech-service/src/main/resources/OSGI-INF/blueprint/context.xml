@@ -44,13 +44,13 @@
     <cm:property-placeholder persistent-id="com.cooper.osgi.speech" update-strategy="reload">
         <cm:default-properties>
             <cm:property name="configHost" value="localhost:2181" />
-            <cm:property name="configNode" value="/tts"/>
+            <cm:property name="configNode" value="/"/>
         </cm:default-properties>
     </cm:property-placeholder>
 
     <bean
             id="staticEngineServlet"
-            class="com.cooper.osgi.speech.service.TtsProxyServlet"
+            class="com.cooper.osgi.speech.service.TtsProxyFront"
             >
         <argument ref="audioSystem"/>
         <argument ref="fileSystem"/>

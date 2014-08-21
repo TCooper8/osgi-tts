@@ -4,7 +4,7 @@ import akka.actor.{Props, PoisonPill, ActorSystem}
 import akka.pattern.ask
 import javax.servlet.http.{HttpServletRequest, HttpServletResponse, HttpServlet}
 import com.cooper.osgi.sampled.{IAudioSystem, IAudioReader}
-import com.cooper.osgi.io.{IBucket, IFileSystem}
+import com.cooper.osgi.io.{ILocalFileSystem, IBucket, IFileSystem}
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import java.io.{ByteArrayInputStream, InputStream}
@@ -16,16 +16,181 @@ import java.security.MessageDigest
 import com.ning.http.client.Response
 import akka.util.Timeout
 import com.cooper.osgi.tracking.ITrackerService
+import java.net.InetAddress
+import akka.routing.Broadcast
+
+class TtsProxyFront(
+		audioSystem: IAudioSystem,
+		localFileSystem: ILocalFileSystem,
+		configService: IConfigService,
+		trackerService: ITrackerService,
+		encoding: String,
+		val configHost: String,
+		configNodeRoot: String
+	) extends HttpServlet with IConfigurable {
+
+	Utils.setTrackerService(trackerService)
+
+	private[this] val log =
+		Utils.getLogger(this)
+
+	val configNode: String =
+		configNodeRoot + getLocalAddress().replace('.', '-')
+
+	private[this] val proxyNode =
+		configNode + "/proxy"
+
+
+	private[this] val kFileSystemType = "fileSystemType"
+	private[this] val kS3AccessKey = "s3AccessKey"
+	private[this] val kS3SecretKey = "s3SecretKey"
+	private[this] val kS3EndPoint = "s3EndPoint"
+
+	private[this] val kS3FileSystemType = "s3"
+	private[this] val kLocalFileSystemType = "local"
+
+	private[this] var fileSystemType = "local"
+	private[this] var s3AccessKey = ""
+	private[this] var s3SecretKey = ""
+	private[this] var s3EndPoint = ""
+
+	private[this] val configHandleMap = Map(
+		kFileSystemType -> {
+			v: String => fileSystemType = v
+		},
+
+		kS3AccessKey -> {
+			v: String => s3AccessKey = v
+		},
+
+		kS3SecretKey -> {
+			v: String => s3SecretKey = v
+		},
+
+		kS3EndPoint -> {
+			v: String => s3EndPoint = v
+		}
+	)
+
+	private[this] var proxy: Try[TtsProxyServlet] =
+		this.createProxy(localFileSystem)
+
+	private[this] val watcher = configService(
+		this,
+		Nil
+	)
+
+	private[this] def getLocalAddress() = {
+		InetAddress.getLocalHost().toString().replace("/", "/addr")
+	}
+
+	override def doGet(req: HttpServletRequest, resp: HttpServletResponse) {
+		val proxyT = this.synchronized {
+			this.proxy
+		}
+
+		proxyT match {
+			case Success(proxy) =>
+				proxy.doGet(req, resp)
+
+			case Failure(err) =>
+				resp.sendError(503, "Service is temporarily unavailable.")
+				log.error(err.getMessage())
+		}
+	}
+
+	private[this] def createProxy(fileSystem: IFileSystem) = {
+		Try {
+			new TtsProxyServlet(
+				audioSystem,
+				fileSystem,
+				configService,
+				encoding,
+				configHost,
+				proxyNode
+			)
+		}
+	}
+
+	/**
+	 * Callback to inform this object that updates have occurred.
+	 * @param props The map of updates that have occurred.
+	 */
+	def configUpdate(props: Iterable[(String, String)]) {
+		log.info(s"Updating with $props")
+
+		this.synchronized {
+			props.foreach {
+				case (k, v) => configHandleMap.get(k).foreach{ _(v) }
+			}
+			Try {
+				if (fileSystemType == kS3FileSystemType) {
+
+					localFileSystem.getS3(
+						s3AccessKey,
+						s3SecretKey,
+						s3EndPoint
+					) match {
+						case Success(s3) =>
+							createProxy(s3) match {
+								case Success(newProxy) =>
+									this.proxy foreach { _.dispose() }
+									this.proxy = Success(newProxy)
+									log.info("Successfully set proxy file system to s3.")
+
+								case Failure(err) =>
+									log.error("Unable to update proxy with s3 file system.", err)
+							}
+
+						case Failure(err) =>
+							log.error(s"Bad credentials: $s3AccessKey, $s3SecretKey, $s3EndPoint")
+							log.error("Unable to update proxy with s3 file system.", err)
+					}
+				}
+				else if (fileSystemType == kLocalFileSystemType) {
+					log.info("Creating local proxy")
+
+					createProxy(localFileSystem) match {
+						case Success(proxy) =>
+							this.proxy foreach { _.dispose() }
+							this.proxy = Success(proxy)
+							log.info(s"Successfully set proxy to local file system")
+
+						case Failure(err) =>
+							log.error("Unable to update proxy with local file system.", err)
+					}
+				}
+				else
+					log.error(s"Unable to match file system type of $fileSystemType")
+			} match {
+				case Failure(err) =>
+					log.error("", err)
+				case _ => ()
+			}
+		}
+	}
+
+	def dispose() {
+		watcher foreach { _.dispose() }
+		proxy foreach { _.dispose() }
+	}
+
+	def configPutFile(rootNode: String, path: String) = Try{
+		val file = new java.io.File(path)
+		val stream = new java.io.FileInputStream(file)
+		watcher foreach { _.putData(rootNode, stream) }
+	}
+}
 
 case class TtsProxyState(
-		var crypto:String,
-		var filePrefix:String,
-		var fileSuffix:String,
-		var httpGetTimeoutDur: FiniteDuration,
-		var rootPath:String,
-		var bucket:IBucket,
-		var writerInstances:Int
-	)
+	var crypto: String,
+	var filePrefix: String,
+	var fileSuffix: String,
+	var httpGetTimeoutDur: FiniteDuration,
+	var rootPath: String,
+	var bucket: Try[IBucket],
+	var writerInstances: Int
+)
 
 /**
  * Describes an Http servlet that communicates with a StaticTtsEngine <: ITtsEngine
@@ -34,18 +199,12 @@ class TtsProxyServlet(
 		audioSystem: IAudioSystem,
 		fileSystem: IFileSystem,
 		configService: IConfigService,
-		trackerService: ITrackerService,
 		encoding: String,
 		val configHost: String,
-		configNodeRoot: String
+		val configNode: String
 	) extends
 		HttpServlet with IConfigurable
 	{
-
-	Utils.setTrackerService(trackerService)
-
-	val configNode =
-		configNodeRoot + "/proxy"
 
 	private[this] val staticEngine = new StaticTtsEngine(
 		audioSystem,
@@ -83,10 +242,9 @@ class TtsProxyServlet(
 	 * Configuration state
 	 */
 
-	private[this] val state = {
-		val rootPath =
-			System.getProperty("user.dir") +
-			"/tts/cache"
+	// This will fail to construct if the bucket is not available.
+	private[this] lazy val state = {
+		val rootPath = "tts-cache"
 
 		TtsProxyState(
 			"SHA1",
@@ -94,8 +252,7 @@ class TtsProxyServlet(
 			".wav",
 			10 seconds,
 			rootPath,
-			fileSystem.getBucket(rootPath)
-			  .orElse(fileSystem.createBucket(rootPath)).get,
+			fileSystem.getBucket(rootPath),
 			5
 		)
 	}
@@ -106,7 +263,7 @@ class TtsProxyServlet(
 	 */
 	private[this] val propHandleMap = Map(
 		kRootPath -> { path:String =>
-		  	if (state.rootPath != path) {
+			if (state.rootPath != path) {
 
 				// Clear the bit field.
 				// - The root file has changed.
@@ -115,15 +272,24 @@ class TtsProxyServlet(
 				// Retrieve or create the new bucket.
 				val bucket =
 					fileSystem.getBucket(path)
-					  .orElse(fileSystem.createBucket(path))
 
 				bucket match {
 					// Populate the bit field.
 					case Success(bucket) =>
 
+						val keys = bucket.listNodes.map {
+							_.map {
+								_.key
+							}
+						}.foreach { keys =>
+							keys.foreach {
+								key:String => fileCachedField.put(key.hashCode())
+							}
+						}
+
 						// Update the state.
 						state.rootPath = path
-						state.bucket = bucket
+						state.bucket = Success(bucket)
 
 					case Failure(err) =>
 						log.error("Unable to update bucket.", err)
@@ -146,7 +312,7 @@ class TtsProxyServlet(
 			Try{ v.toInt }
 			  .map{ _.seconds }
 			  .foreach{ v =>
-			  	state.httpGetTimeoutDur = v
+				state.httpGetTimeoutDur = v
 			}
 		}
 	)
@@ -225,7 +391,9 @@ class TtsProxyServlet(
 
 				resp.setContentType("audio/x-wav")
 				resp.setContentLength(reader.getContentLength())
+
 				reader.copyTo(outStream)
+				resp.setStatus(200)
 				outStream.flush()
 			}
 		}
@@ -235,10 +403,17 @@ class TtsProxyServlet(
 		Utils.using(inStream) {
 			inStream =>
 				val outStream = resp.getOutputStream()
-				resp.setContentType(audioContentType)
-				resp.setContentLength(inStream.available)
-				Utils.copy(inStream, outStream)
-				outStream.flush()
+				try {
+					resp.setContentType(audioContentType)
+					resp.setContentLength(inStream.available)
+
+					Utils.copy(inStream, outStream)
+					resp.setStatus(200)
+				}
+				finally {
+					outStream.flush()
+					outStream.close()
+				}
 		}
 	}
 
@@ -262,10 +437,6 @@ class TtsProxyServlet(
 				val fileStream = new ByteArrayInputStream(byteData)
 				val respStream = new ByteArrayInputStream(byteData)
 
-				// Pulling two streams, one for caching, the other to copy straight to the response.
-				//val inStreamA = engineResp.getResponseBodyAsStream()
-				//val inStreamB = engineResp.getResponseBodyAsStream()
-
 				copyToResp(respStream, resp)
 
 				fileWriter ! FileMsg.WriteFileMsg(bucket, fileStream, key)
@@ -282,13 +453,8 @@ class TtsProxyServlet(
 		bucket.read(key)
 		  .flatMap{ _.content }
 		  .flatMap{ content =>
-		  		// Recover the cache if it does not contain the key.
-		  		if (!cache.contains(key))
-					fileWriter ! FileMsg.PullFileToF(
-						bucket, key,
-						{ (data: Array[Byte]) => cache.put(key, data) }
-					)
-				copyToResp(content, resp)
+			// Recover the cache if it does not contain the key.
+			copyToResp(content, resp)
 		}
 	}
 	def hash(s: String, crypto:String) = {
@@ -302,7 +468,7 @@ class TtsProxyServlet(
 
 		val (bucket, fileKey) = sync{
 			val fileKey =
-				s"/$voice/" +
+				s"$voice/" +
 				  state.filePrefix +
 				  hash(speak, state.crypto) +
 				  state.fileSuffix
@@ -310,7 +476,7 @@ class TtsProxyServlet(
 			(state.bucket, fileKey)
 		}
 
-		def callEngine(): Unit = Try {
+		def callEngine(bucket: IBucket): Unit = Try {
 			val task = engineRouter ? EngineMsg.CallEngine(voice, speak)
 
 			Await.result(task, timeoutDur) match {
@@ -319,16 +485,14 @@ class TtsProxyServlet(
 						case Failure(err) =>
 							log.error("Unable to pipe responses", err)
 							track.put("PipeResponseFailure", 1)
-							resp.sendError(500)
-						case _ =>
-							track.put("HttpResp:200", 1)
+						case _ => ()
 					}
 
 				case EngineMsg.CallEngineReply(Failure(err)) =>
 					log.error(s"Unable to call engine ${err.getMessage}")
 					track.put("CallEngineFailure", 1)
 
-					checkCache() // Try again until failure
+					checkCache(bucket) // Try again until failure
 
 				case _ =>
 					log.error("Engine response was invalid.")
@@ -338,7 +502,7 @@ class TtsProxyServlet(
 			}
 		} match {
 			case Failure(err) =>
-				log.error(err.getMessage())
+				log.error(err.getMessage)
 				track.put(err.getClass.getName, 1)
 				track.put("HttpResp:500", 1)
 
@@ -347,7 +511,41 @@ class TtsProxyServlet(
 			case Success(_) => ()
 		}
 
-		def checkCache(): Unit = {
+		def checkCache(bucket: IBucket): Unit = {
+
+			/*val cacheLookup = this.cache.get(fileKey)
+
+			if (cacheLookup.isDefined) {
+				track.put(cacheHit, 1)
+				val respStream = new ByteArrayInputStream(cacheLookup.get)
+				copyToResp(respStream, resp)
+			}
+			if (fileCachedField.get(fileKey.hashCode()).isDefined) {
+				track.put(cacheMiss, 1)
+
+				copyFromFile(bucket, fileKey, resp) match {
+					case Success(_) =>
+						track.put("FileRead:Success", 1)
+						track.put("HttpResp:200", 1)
+						track.put(bitFieldHit, 1)
+
+						if (!cache.contains(fileKey)) {
+							fileWriter ! FileMsg.PullFileToF(
+							bucket, fileKey, {
+								(data: Array[Byte]) => cache.put(fileKey, data)
+							})
+						}
+
+					case Failure(err) =>
+						//log.error(s"Error reading file $fileKey", err)
+						track.put(bitFieldMiss, 1)
+						callEngine(bucket)
+				}
+			}
+			else {
+				track.put(cacheMiss, 1)
+				callEngine(bucket)
+			}*/
 
 			val cacheLookup = this.cache.get(fileKey)
 
@@ -355,29 +553,45 @@ class TtsProxyServlet(
 				track.put(cacheHit, 1)
 				val respStream = new ByteArrayInputStream(cacheLookup.get)
 				copyToResp(respStream, resp)
-			}
-			else if (fileCachedField.get(fileKey.hashCode()).isDefined) {
-				track.put(cacheMiss, 1)
-
-				copyFromFile(bucket, fileKey, resp) match {
-					case Success(_) =>
-						track.put("FileRead:Success", 1)
-						track.put("HttpResp:200", 1)
-						fileCachedField.put(fileKey.hashCode())
-
-					case Failure(_) =>
-						track.put(bitFieldMiss, 1)
-						callEngine()
-				}
+				track.put("HttpResp:200", 1)
 			}
 			else {
-				track.put(cacheMiss, 1)
-				callEngine()
-				track.put(bitFieldHit, 1)
+				val inBucket = copyFromFile(bucket, fileKey, resp)
+				if (inBucket.isSuccess) {
+					track.put("FileRead:Success", 1)
+					track.put("HttpResp:200", 1)
+
+					// Recover the file data from here.
+					if (!cache.contains(fileKey))
+						fileWriter ! FileMsg.PullFileToF(
+							bucket,
+							fileKey,
+							data =>
+								if (!cache.contains(fileKey))
+									cache.put(fileKey, data)
+						)
+				}
+				else {
+					callEngine(bucket)
+				}
 			}
+
+			/*copyFromFile(bucket, fileKey, resp) match {
+				case Success(_) =>
+					track.put("FileRead:Success", 1)
+					track.put("HttpResp:200", 1)
+
+				case Failure(err) =>
+					//log.error(s"Error reading file $fileKey", err)
+					callEngine(bucket)
+			}*/
 		}
 
-		checkCache()
+		bucket match {
+			case Success(bucket) => checkCache(bucket)
+			case Failure(err) =>
+				log.error(err.getMessage())
+		}
 	}
 
 	private[this] def handleSpell
@@ -417,6 +631,17 @@ class TtsProxyServlet(
 		}
 	}
 
+	case object TtsQuery {
+		val kVoice = "voice"
+		val kSpeak = "speak"
+
+		def unapply(req: HttpServletRequest): Option[(String, String)] =
+			(Option{req.getParameter(kVoice)}, Option{req.getParameter(kSpeak)}) match {
+				case (Some(voice), Some(speak)) => Some((voice, speak))
+				case _ => None
+			}
+	}
+
 	/**
 	 * Called by the server to allow the servlet to handle a GET request.
 	 * @param req An HttpServletRequest object that contains the request the client has made of the servlet.
@@ -424,22 +649,17 @@ class TtsProxyServlet(
 	 */
 	override def doGet(req: HttpServletRequest, resp: HttpServletResponse) {
 		Try {
-			// Retrieve the voice and phrase from the request, for translation.
-			val voiceIn = req.getParameter("voice")
-			val phrase = req.getParameter("speak")
-
-			// If the voice or phrase are not defined, send back bad response.
-			(voiceIn != null, phrase != null) match {
-				case (true, true) =>
+			req match {
+				case TtsQuery(voice, phrase) =>
 					// Set timeout implicits
 					implicit val timeoutDur = sync {
 						state.httpGetTimeoutDur
 					}
 					implicit val timeout = Timeout(timeoutDur)
 
-					voiceIn.indexOf("_spell") match {
-						case -1 => handleSynth(phrase, voiceIn, resp)
-						case i => handleSpell(phrase, voiceIn.substring(0, i), resp)
+					voice.indexOf("_spell") match {
+						case -1 => handleSynth(phrase, voice, resp)
+						case i => handleSpell(phrase, voice.substring(0, i), resp)
 					}
 
 				case _ =>
@@ -454,14 +674,6 @@ class TtsProxyServlet(
 			case _ =>
 				()
 		}
-	}
-
-	def configPutFile(path: String) = {
-		fileSystem.getNode("", path).map { node =>
-			node.content map { inStream =>
-				watcher foreach { _.putData(inStream) }
-			}
-		}.flatten
 	}
 
 	/**

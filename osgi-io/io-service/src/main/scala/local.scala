@@ -1,13 +1,22 @@
-package com.cooper.osgi.io.local
+package com.cooper.osgi.io.service
 
-import com.cooper.osgi.io.{INode, IBucket, ILocalFileSystem}
+import java.io.{FileInputStream, FileOutputStream, InputStream, File}
 import scala.util.{Failure, Success, Random, Try}
-import java.io.{FileInputStream, FileOutputStream, File, InputStream}
 import java.util.Date
 import java.nio.file.Paths
+import com.cooper.osgi.io._
 
 class LocalFileSystem() extends ILocalFileSystem {
+
 	val separator: String = File.separator
+
+	def getS3(accessKey: String, secretKey: String, endPoint: String): Try[IFileSystem] = {
+		S3FileSystem(accessKey, secretKey, endPoint) match {
+			case Success(s3) =>
+				Success(s3)
+			case Failure(err) => Failure(err)
+		}
+	}
 
 	def createBucket(path: String): Try[IBucket] = Try {
 		val file = new File(path)
@@ -112,4 +121,52 @@ class LocalFileSystem() extends ILocalFileSystem {
 
 	def normalize(path: String): String =
 		Paths.get(path).normalize.toString
+}
+
+case class LocalBucket(fs: IFileSystem, path: String) extends IBucket {
+
+	private[this] lazy val dir: File = new File(path)
+
+	override def key = dir.getName()
+
+	override def creationDate: Try[Date] =
+		fs.getLastModified("/", path)
+
+	override def listNodes: Try[Iterable[INode]] = Try {
+		dir.listFiles.map {
+			f => if (f.isFile) Some(LocalNode(fs, this.path, f.getName)) else None
+		}.flatten.toIterable
+	}
+
+	override def listBuckets: Try[Iterable[IBucket]] = Try {
+		dir.listFiles.map {
+			f => if (f.isDirectory) Some(LocalBucket(fs, f.getPath)) else None
+		}.flatten.toIterable
+	}
+
+	override def delete(key: String): Try[Unit] =
+		fs.deleteNode(path, key)
+
+	override def read(key: String): Try[INode] =
+		fs.getNode(path, key)
+
+	override def write(inStream: InputStream, key: String): Try[INode] =
+		fs.write(this.path, inStream, key)
+}
+
+case class LocalNode(fs: IFileSystem, parentPath: String, key: String) extends INode {
+	def content: Try[InputStream] =
+		fs.read(parentPath, this.key)
+
+	def lastModified: Try[Date] =
+		fs.getLastModified(parentPath, this.key)
+
+	val path: String =
+		fs.resolvePath(parentPath, key)
+
+	def write(inStream: InputStream): Try[Unit] =
+		fs.write(parentPath, inStream, key).map(_ => Unit)
+
+	def parent: Try[IBucket] =
+		fs.getBucket(parentPath)
 }

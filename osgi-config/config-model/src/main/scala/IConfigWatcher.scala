@@ -34,5 +34,5 @@ trait IConfigWatcher {
 	 * 	- Parses the InputStream using 'typesafe.config.ConfigFactory.parse'.
 	 * @param inStream The stream of data.
 	 */
-	def putData(inStream: InputStream): Try[Unit]
+	def putData(rootNode: String, inStream: InputStream): Try[Unit]
 }

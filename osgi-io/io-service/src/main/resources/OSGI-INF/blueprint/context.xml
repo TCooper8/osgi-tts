@@ -3,7 +3,7 @@
 
     <bean
             id="localFileSystem"
-            class="com.cooper.osgi.io.local.LocalFileSystem"
+            class="com.cooper.osgi.io.service.LocalFileSystem"
             >
     </bean>
 
