@@ -7,7 +7,7 @@ package com.cooper.osgi.config.service
 import Constants.{futureTimeout, keeperTickTime}
 
 import scala.collection.mutable
-import org.apache.zookeeper.ZooKeeper
+import org.apache.zookeeper.{Watcher, ZooKeeper}
 import akka.actor.{ReceiveTimeout, Actor}
 import scala.concurrent.{Await, Future, ExecutionContext}
 import ExecutionContext.Implicits.global
@@ -18,7 +18,7 @@ import com.cooper.osgi.config.{ConfigException, ConfigZooKeeperAuthFailed}
 object ZooKeeperPool {
 	trait Msg
 	trait Reply
-	case class GetKeeper(host:String) extends Msg
+	case class GetKeeper(host:String, watcher: Watcher) extends Msg
 	case class GetKeeperReply(reply: Try[ZooKeeper]) extends Reply
 }
 
@@ -32,9 +32,8 @@ class ZooKeeperPool() extends Actor {
 
 	private[this] val keepers: mutable.Map[String, ZooKeeper] =
 		new mutable.HashMap[String, ZooKeeper]()
-			with mutable.SynchronizedMap[String, ZooKeeper]
 
-	private[this] def awaitConnection(keeper: ZooKeeper, host:String): Try[ZooKeeper] = Try {
+	private[this] def awaitConnection(keeper: ZooKeeper, host:String, watcher: Watcher): Try[ZooKeeper] = Try {
 		val task = Future {
 			while (keeper.getState == KeeperState.CONNECTING)
 				Thread.sleep(10)
@@ -43,11 +42,12 @@ class ZooKeeperPool() extends Actor {
 
 		handleState(
 			Await.result(task, futureTimeout),
-			host
+			host,
+			watcher
 		)
 	}.flatten
 
-	private[this] def handleState(keeper: ZooKeeper, host:String): Try[ZooKeeper] = {
+	private[this] def handleState(keeper: ZooKeeper, host:String, watcher: Watcher): Try[ZooKeeper] = {
 		keeper.getState() match {
 			case KeeperState.AUTH_FAILED =>
 				// Authentication failure cannot be recovered.
@@ -55,13 +55,13 @@ class ZooKeeperPool() extends Actor {
 					ConfigZooKeeperAuthFailed(message = s"Cannot authenticate connection for ZooKeeper@$host")
 				}
 			case KeeperState.CLOSED =>
-				makeKeeper(host)
+				makeKeeper(host, watcher)
 
 			case KeeperState.CONNECTED =>
 				Success(keeper)
 
 			case KeeperState.CONNECTING =>
-				awaitConnection(keeper, host)
+				awaitConnection(keeper, host, watcher)
 
 			case _ =>
 				Failure {
@@ -70,9 +70,9 @@ class ZooKeeperPool() extends Actor {
 		}
 	}
 
-	private[this] def makeKeeper(host:String) = Try{
-		val keeper = new ZooKeeper(host, keeperTickTime.toMillis.toInt, null)
-		val handled = handleState(keeper, host)
+	private[this] def makeKeeper(host:String, watcher: Watcher) = Try{
+		val keeper = new ZooKeeper(host, keeperTickTime.toMillis.toInt, watcher)
+		val handled = handleState(keeper, host, watcher)
 
 		if (handled.isFailure)
 			keeper.close()
@@ -80,10 +80,10 @@ class ZooKeeperPool() extends Actor {
 		handled
 	}.flatten
 
-	private[this] def getKeeper(host:String): Try[ZooKeeper] = Try{
+	private[this] def getKeeper(host:String, watcher: Watcher): Try[ZooKeeper] = Try{
 		keepers get host match {
-			case Some(keeper) => handleState(keeper, host)
-			case None => makeKeeper(host)
+			case Some(keeper) => handleState(keeper, host, watcher)
+			case None => makeKeeper(host, watcher)
 		}
 	}.flatten
 
@@ -101,8 +101,8 @@ class ZooKeeperPool() extends Actor {
 	}
 
 	def receive = {
-		case ZooKeeperPool.GetKeeper(host) =>
-			val task = Future{getKeeper(host)}
+		case ZooKeeperPool.GetKeeper(host, watcher) =>
+			val task = Future{getKeeper(host, watcher)}
 			Try {
 				val out = Await.result(task, futureTimeout)
 				sender ! ZooKeeperPool.GetKeeperReply(out)

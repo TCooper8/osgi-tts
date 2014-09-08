@@ -2,7 +2,7 @@ package com.cooper.osgi.io.service
 
 import com.amazonaws.services.s3.AmazonS3Client
 import java.io._
-import scala.util.{Failure, Success, Try}
+import scala.util.{Success, Try}
 import java.util.Date
 import java.nio.file.Paths
 import com.amazonaws.services.s3.model.{Bucket => S3Bucket, PutObjectRequest, GetObjectRequest, S3ObjectSummary, ObjectMetadata}
@@ -11,11 +11,7 @@ import com.cooper.osgi.io._
 import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.{ClientConfiguration, Protocol}
 import org.apache.commons.io.IOUtils
-import scala.concurrent.{ExecutionContext, Await, Future}
 import scala.concurrent.duration._
-import ExecutionContext.Implicits.global
-import java.util.concurrent.TimeoutException
-import java.util.concurrent.atomic.AtomicReference
 
 object S3FileSystem {
 	def apply(accessKey: String, secretKey: String, endPoint: String) = Try {
@@ -28,8 +24,11 @@ class S3FileSystem(accessKey:String, secretKey:String, endPoint:String) extends 
 
 	private[this] val client = makeClient
 
+	/**
+	 * This is just an internal call to spawn an S3Client.
+	 * @return Returns a new AmazonS3Client.
+	 */
 	private[this] def makeClient = {
-		println("Making new client!")
 		val credentials = new BasicAWSCredentials(accessKey, secretKey)
 
 		val config = new ClientConfiguration()
@@ -56,6 +55,12 @@ class S3FileSystem(accessKey:String, secretKey:String, endPoint:String) extends 
 		Bucket(this, client, bucket)
 	}
 
+	/**
+	 * Attempts to delete the associated key -> node.
+	 * @param bucket The root bucket containing the node.
+	 * @param key The key associated with the node.
+	 * @return Returns Success(Unit) if successful, else Failure(err).
+	 */
 	def deleteNode(bucket: String, key: String): Try[Unit] = Try {
 		client.deleteObject(bucket, key)
 	}

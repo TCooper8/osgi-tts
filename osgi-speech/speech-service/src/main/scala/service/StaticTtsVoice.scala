@@ -6,6 +6,19 @@ import com.cooper.osgi.io.IFileSystem
 import com.cooper.osgi.speech.ITtsVoice
 import scala.util.{Success, Try, Failure}
 
+/**
+ * This class is intended to manage the streaming of multiple audio files.
+ * 	- For a static translation.
+ *
+ * This class supports an IConfiguration of: example:
+ *
+ * name {
+ * 		filePrefix = "DIR/TTS_"
+ * 		fileSuffix = ".wav"
+ * 		rootPath = "voices"
+ * }
+ *
+ */
 case class StaticTtsVoice(
 		configService: IConfigService,
 		audioSystem: IAudioSystem,
@@ -41,6 +54,7 @@ case class StaticTtsVoice(
 
 	private[this] var rootPath =
 		"tts-" + configNode
+
 
 	private[this] var fileSuffix =
 		".wav"
@@ -145,4 +159,8 @@ case class StaticTtsVoice(
 				None
 			case Success(res) => Some(res)
 		}
+
+	def dispose() {
+		watcher foreach { _.dispose() }
+	}
 }

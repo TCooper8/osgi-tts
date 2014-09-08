@@ -11,10 +11,6 @@
         <argument value="com.cooper.osgi.speech"/>
     </bean>
 
-    <bean id="encoding" class="java.lang.String" >
-        <argument value="UTF-8"/>
-    </bean>
-
     <reference
             id="configAdmin"
             interface="org.osgi.service.cm.ConfigurationAdmin"
@@ -50,13 +46,12 @@
 
     <bean
             id="staticEngineServlet"
-            class="com.cooper.osgi.speech.service.TtsProxyFront"
+            class="com.cooper.osgi.speech.service.TtsProxyServlet"
             >
         <argument ref="audioSystem"/>
         <argument ref="fileSystem"/>
         <argument ref="configService"/>
         <argument ref="trackerService"/>
-        <argument ref="encoding"/>
         <argument value="${configHost}"/>
         <argument value="${configNode}"/>
     </bean>

@@ -152,6 +152,8 @@ case class LocalBucket(fs: IFileSystem, path: String) extends IBucket {
 
 	override def write(inStream: InputStream, key: String): Try[INode] =
 		fs.write(this.path, inStream, key)
+
+
 }
 
 case class LocalNode(fs: IFileSystem, parentPath: String, key: String) extends INode {

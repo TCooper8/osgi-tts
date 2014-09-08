@@ -13,4 +13,5 @@ object ConfigWatcherEvents {
 	case class ProcessMsg(event: WatchedEvent) extends Msg
 	case class ProcessResultMsg(rc: Int, path: String, ctx: Object, stat: Stat) extends Msg
 	case class ExistsMsg(data: Array[Byte]) extends Msg
+	case class Initialize() extends Msg
 }
