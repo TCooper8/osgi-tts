@@ -16,7 +16,7 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>io-local-service</artifactId>
+            <artifactId>io-service</artifactId>
         </dependency>
     </dependencies>
 

@@ -1,11 +1,9 @@
 package com.cooper.osgi.config.service
 
-import Constants._
-
 import akka.actor.{ActorRef, ReceiveTimeout, Actor}
 import akka.pattern.ask
 import com.cooper.osgi.config.IConfigurable
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
 import org.apache.zookeeper._
 import org.apache.zookeeper.ZooDefs.Ids
 import org.apache.zookeeper.data.Stat
@@ -15,6 +13,9 @@ import org.apache.zookeeper.KeeperException.Code
 import scala.util.{Success, Try, Failure}
 import scala.collection.JavaConversions._
 import scala.concurrent.Await
+import akka.util.Timeout
+
+import Constants._
 
 /**
  * This acts as a ZooKeeper watch implemtation.
@@ -37,6 +38,9 @@ class DynamicConfigActor(
 	private[this] val track =
 		Utils.getTracker(Constants.trackerKey)
 
+	private[this] val host = config.configHost
+	private[this] val node = config.configNode
+
 	private[this] def maybe[A](expr: => A): Option[A] = maybe("")(expr)
 	private[this] def maybe[A](msg: String = "")(expr: => A): Option[A] = {
 		Try{ expr } match {
@@ -54,13 +58,11 @@ class DynamicConfigActor(
 		getKeeper
 
 	/**
-	 * The ZooKeeper to listen to.
-	 * 	- If this crashes for any reason, this actor should die and respawn.
-	*/
+	 * Represents the current nodes' stats.
+	 */
+	private[this] var curStats =
+		getPropStats()
 
-	this.init()
-
-	keeper.register(listener)
 	/**
 	 * Initializes data and loads default data into configuration.
 	 */
@@ -123,13 +125,15 @@ class DynamicConfigActor(
 	 */
 	private[this] def getKeeper: ZooKeeper = {
 		Try {
-			val task = keeperPool ? ZooKeeperPool.GetKeeper(config.configHost)
+			val task = keeperPool ? ZooKeeperPool.GetKeeper(config.configHost, listener)
 			Await.result(task, futureTimeout) match {
 				case ZooKeeperPool.GetKeeperReply(reply) => reply
 				case _ => Failure(null)
 			}
 		}.flatten match {
-			case Success(keeper) => keeper
+			case Success(keeper) =>
+				keeper
+
 			case Failure(err) =>
 				log.error("", err)
 				track.put(err.getClass.getName, 1)
@@ -142,14 +146,6 @@ class DynamicConfigActor(
 				*/
 		}
 	}
-
-	/**
-	 * Represents the current nodes' stats.
-	 */
-	private[this] var curStats =
-		getPropStats()
-
-	checkUpdate()
 
 	/**
 	 * Converts a given key to an absolute node.
@@ -172,12 +168,20 @@ class DynamicConfigActor(
 		}
 	}
 
-	private[this] def getPropStats() =
-		keeper.getChildren(config.configNode, true).toList.flatMap {
-			child => getStat(toNode(child)) map {
-				stat => (child -> stat)
-			}
-		}.toMap
+	private[this] def getPropStats() = {
+		Try {
+			keeper.getChildren(config.configNode, true).toList.flatMap {
+				child => getStat(toNode(child)) map {
+					stat => (child -> stat)
+				}
+			}.toMap
+		} match {
+			case Success(m) => m
+			case Failure(err) =>
+				log.error(s"Error while getting Keeper:Node:${config.configNode} children.", err.getMessage)
+				Map[String, Stat]()
+		}
+	}
 
 	private[this] def createNodeUnsafe(node: String, data: Array[Byte]) {
 		keeper.create(node, data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT)
@@ -272,9 +276,16 @@ class DynamicConfigActor(
 				setOrCreate(name, value.getBytes(encoding))
 			}
 
+		case Initialize() =>
+			this.init()
+			this.checkUpdate()
+
 		case ReceiveTimeout =>
+			log.warn(s"Watch has not heard from server in some time. Check $host/$node for problems.")
+
 			keeper.getState() match {
 				case ZooKeeper.States.CLOSED =>
+					keeper.close()
 					keeper = getKeeper
 				case _ => ()
 			}
@@ -298,8 +309,8 @@ class DynamicConfigActor(
 				case KeeperState.SyncConnected => ()
 
 				case KeeperState.Expired =>
+					this.keeper.close()
 					this.keeper = getKeeper
-					//listener.closing(KeeperException.Code.SESSIONEXPIRED.intValue())
 
 				case _ => ()
 			}
@@ -328,13 +339,18 @@ class DynamicConfigActor(
 			case Code.OK => Some(true)
 			case Code.NONODE => Some(false)
 			case Code.SESSIONEXPIRED =>
+				this.keeper.close()
 				keeper = getKeeper
 				None
 
-			case Code.NOAUTH => listener.closing(rc); Some(false)
+			case Code.NOAUTH =>
+				listener.closing(rc)
+				Some(false)
+
 			case _ =>
 				keeper.exists(config.configNode, true, listener, null)
 				None
+
 		}) map (exists => {
 			if (exists && path.startsWith(config.configNode)) maybe {
 				checkUpdate()

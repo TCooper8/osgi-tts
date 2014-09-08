@@ -12,8 +12,7 @@
 
     <modules>
         <module>io-model</module>
-        <module>io-local-service</module>
-        <module>io-s3-service</module>
+        <module>io-service</module>
         <module>io-features</module>
     </modules>
 
@@ -25,12 +24,7 @@
         <dependencies>
             <dependency>
                 <groupId>${project.groupId}</groupId>
-                <artifactId>io-local-service</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>${project.groupId}</groupId>
-                <artifactId>io-s3-service</artifactId>
+                <artifactId>io-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

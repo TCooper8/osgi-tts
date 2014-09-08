@@ -11,10 +11,6 @@
         <argument value="com.cooper.osgi.speech"/>
     </bean>
 
-    <bean id="encoding" class="java.lang.String" >
-        <argument value="UTF-8"/>
-    </bean>
-
     <reference
             id="configAdmin"
             interface="org.osgi.service.cm.ConfigurationAdmin"
@@ -44,7 +40,7 @@
     <cm:property-placeholder persistent-id="com.cooper.osgi.speech" update-strategy="reload">
         <cm:default-properties>
             <cm:property name="configHost" value="localhost:2181" />
-            <cm:property name="configNode" value="/tts"/>
+            <cm:property name="configNode" value="/"/>
         </cm:default-properties>
     </cm:property-placeholder>
 
@@ -56,7 +52,6 @@
         <argument ref="fileSystem"/>
         <argument ref="configService"/>
         <argument ref="trackerService"/>
-        <argument ref="encoding"/>
         <argument value="${configHost}"/>
         <argument value="${configNode}"/>
     </bean>

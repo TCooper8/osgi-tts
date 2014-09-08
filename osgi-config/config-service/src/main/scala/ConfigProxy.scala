@@ -10,6 +10,7 @@ import org.apache.zookeeper.data.Stat
 import scala.util.{Failure, Success, Try}
 import com.cooper.osgi.config.service.ConfigWatcherEvents._
 import java.io.InputStream
+import org.apache.zookeeper.KeeperException.Code
 
 /**
  * This is a proxy class for a ConfigActor.
@@ -58,6 +59,12 @@ case class ConfigProxy(
 	))
 
 	/**
+	 * This has to be done to avoid NullPointerExceptions.
+	 * 	- The ZooKeeper expects a watcher, else it complains.
+	 */
+	actor ! Initialize()
+
+	/**
 	 * Pushes a String -> Array[Byte] to the configuration.
 	 * @param key The key to push the data to.
 	 * @param data The actual data to push.
@@ -78,7 +85,8 @@ case class ConfigProxy(
 	 * @param rc The return code.
 	 */
 	def closing(rc: Int) {
-		log.info(s"Shutting down config watcher for ${config.configNode}@${config.configHost}.")
+		val resp = Code.get(rc)
+		log.info(s"Shutting down config watcher for ${config.configNode}@${config.configHost} with error $resp.")
 	}
 
 	/**
@@ -94,8 +102,8 @@ case class ConfigProxy(
 	 * - Parses the InputStream using 'typesafe.config.ConfigFactory.parse'.
 	 * @param inStream The stream of data.
 	 */
-	def putData(inStream: InputStream): Try[Unit] = Try{
-		NodeStructure.parse(inStream).map { nodes =>
+	def putData(rootNode: String, inStream: InputStream): Try[Unit] = Try{
+		NodeStructure.parse(rootNode, inStream).map { nodes =>
 			actor ! PutNodesMsg(nodes)
 		}
 	}.flatten

@@ -73,8 +73,12 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 	 * @param outStream The stream to copy to.
 	 */
 	def copyBodyTo(outStream: OutputStream) = Try {
-		Try { Utils.copy(inStream, outStream) }.map {
-			_ => parent.copyBodyTo(outStream)
+		Utils.using(inStream) { inStream =>
+			Try {
+				Utils.copy(inStream, outStream)
+			}.map {
+				_ => parent.copyBodyTo(outStream)
+			}.flatten
 		}
 	}
 
@@ -98,18 +102,17 @@ class WavReader(inStream: InputStream, parent: IWavReader) extends IWavReader {
 		buffer.put(dataChunkID.getBytes())
 		buffer.putInt(dataChunkSize)
 
-		Try { outStream.write(buffer.array()) }
-	}.flatten
+		outStream.write(buffer.array())
+	}
 
 	/**
 	 * Copies all available data to an OutputStream.
 	 * @param outStream The stream to copy to.
 	 */
-	def copyTo(outStream: OutputStream) = Try {
-		copyFormatTo(outStream).map {
+	def copyTo(outStream: OutputStream) =
+		copyFormatTo(outStream).flatMap {
 			_ => copyBodyTo(outStream)
 		}
-	}
 
 	/**
 	 * Gets the total audio data length in bytes.

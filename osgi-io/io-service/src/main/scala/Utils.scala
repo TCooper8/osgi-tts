@@ -1,4 +1,4 @@
-package com.cooper.osgi.io.local
+package com.cooper.osgi.io.service
 
 import java.io.{Closeable, OutputStream, InputStream}
 import org.apache.commons.io.IOUtils
@@ -13,6 +13,14 @@ object Utils {
 	def using[A <: Closeable, B](resource: A)(f: A => B) = {
 		try f(resource)
 		finally resource.close()
+	}
+
+	def using2[A <: Closeable, B <: Closeable, C](resourceA: A, resourceB: B) (f: (A, B) => C) = {
+		try f(resourceA, resourceB)
+		finally {
+			resourceA.close()
+			resourceB.close()
+		}
 	}
 
 	/**

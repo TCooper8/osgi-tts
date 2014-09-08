@@ -1,97 +1,38 @@
 package com.cooper.osgi.tracking.service
 
-import akka.actor.{PoisonPill, TypedProps, TypedActor, ActorSystem}
 import com.cooper.osgi.tracking.{ITrackerService, ITracker}
-import com.typesafe.config.{ConfigFactory, Config}
 import scala.collection.mutable
 
-/**
- * This is an implementation of ITracker[A] to act as a
- * TypedActor interface for an Actor. As a result, this class
- * is left non-thread safe.
- * @param name The name of the tracker.
- * @tparam A Generic data type.
- */
-case class Tracker[A](name: String) extends ITracker[A] {
 
-	/**
-	 * This is a cache that acts as the storage for the data.
-	 */
-	private[this] val cache: mutable.Map[A, Long] =
-		mutable.Map[A, Long]()
+private[this] case class MapTracker() extends ITracker[String] {
+
+	private[this] val map =
+		new mutable.HashMap[String, Long]()
+
+	private[this] def sync[A](expr: => A) = this.synchronized(expr)
 
 	/**
 	 * Queues the data pair for storage.
 	 * @param k Generic key type.
 	 * @param v Accumulation count.
 	 */
-	def put(k: A, v: Long) {
-		cache.update(k, v + cache.getOrElse(k, 0l))
-	}
+	override def put(k: String, v: Long): Unit =
+		sync{ map.put(k, map.getOrElse(k, 0l) + v) }
 
 	/**
 	 * Attempts to retrieve the associated count from the given key.
 	 * @param key They key associated with the desired result.
 	 * @return Returns Some[Long](n) if key was found, else None.
 	 */
-	def get(key: A): Option[Long] =
-		cache get key
+	override def get(key: String): Option[Long] =
+		sync{ map get key }
 
 	/**
 	 * Returns an Iterable structure that represents the current state of the data.
 	 * @return Iterable key -> value pairs.
 	 */
-	def iterable: Iterable[(A, Long)] =
-		cache.toIterable
-}
-
-trait ITrackerServiceState {
-	def getTracker(name: String): ITracker[String]
-	def dispose(): Unit
-}
-
-/**
- * This acts as the mutable state of the TrackerService.
- * Intentionally left non-thread safe.
- */
-class TrackerServiceState(context: ActorSystem) extends ITrackerServiceState {
-
-	// This is the map of active trackers.
-	private[this] val trackers =
-		mutable.Map[String, ITracker[String]]()
-
-	/**
-	 * Attempts to retrieve or create a valid ITracker object.
-	 * @param name The key associated with the desired ITracker.
-	 * @return Returns a thread-safe ITracker.
-	 */
-	def getTracker(name: String): ITracker[String] = {
-		// Attempt to retrieve an existing tracker from memory.
-
-		trackers get name match {
-			case Some(tracker) => tracker
-			case None =>
-				// No tracker is found, create a TypedActor with the ITracker interface.
-				val tracker: ITracker[String] = TypedActor(context).typedActorOf(
-					TypedProps(
-						classOf[ITracker[String]],
-						Tracker[String](name)
-					)
-				)
-				// Place the tracker into memory for later retrieval.
-				val _ = trackers.put(name, tracker)
-				tracker
-		}
-	}
-
-	/**
-	 * Disposes of this objects allocated resources.
-	 */
-	def dispose() {
-		trackers.keys.foreach {
-			key => trackers.remove(key)
-		}
-	}
+	override def iterable: Iterable[(String, Long)] =
+		sync{ map.toIterable }
 }
 
 /**
@@ -110,36 +51,15 @@ class TrackerServiceState(context: ActorSystem) extends ITrackerServiceState {
  */
 class TrackerService() extends ITrackerService {
 
-	private[this] val kActorSystemName = this.getClass.getName.replace(".", "")
+	private[this] val trackerMap =
+		new mutable.HashMap[String, ITracker[String]]()
+			with mutable.SynchronizedMap[String, ITracker[String]]
 
-	/**
-	 * This is the active ActorSystem for this bundle.
-	 */
-	private[this] val actorSystem = getActorSystem
-
-	/**
-	 * Attempts to retrieve the ActorSystem.
-	 */
-	private[this] def getActorSystem = {
-		val loader = classOf[ActorSystem].getClassLoader()
-		val config: Config = {
-			val config = ConfigFactory.defaultReference(loader)
-			config.checkValid(ConfigFactory.defaultReference(loader), "akka")
-			config
-		}
-		ActorSystem(kActorSystemName, config, loader)
+	private[this] def makeTracker(name: String): ITracker[String] = {
+		val tracker = MapTracker()
+		trackerMap.update(name, tracker)
+		tracker
 	}
-
-	/**
-	 * This acts as this object's mutable state, wrapped behind a TypedActor.
-	 */
-	private[this] val state: ITrackerServiceState =
-		TypedActor(actorSystem).typedActorOf(
-			TypedProps(
-				classOf[ITrackerServiceState],
-				new TrackerServiceState(actorSystem)
-			)
-		)
 
 	/**
 	 * Retrieves or creates a String -> Long data tracker.
@@ -147,13 +67,14 @@ class TrackerService() extends ITrackerService {
 	 * @return Returns an existing, or new data tracker.
 	 */
 	def getTracker(name: String): ITracker[String] =
-		state.getTracker(name)
+		trackerMap get name match {
+			case Some(out) => out
+			case None => makeTracker(name)
+		}
 
 	/**
 	 * Disposes of this objects allocated resources.
 	 */
 	def dispose() {
-		state.dispose()
-		actorSystem.actorSelection("*") ! PoisonPill
 	}
 }
