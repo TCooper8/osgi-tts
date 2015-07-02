@@ -81,7 +81,7 @@ Multi-reader optimized IAudioReader's are planned, as to avoid constructing the 
 ## Usage
 
 ### Example
-
+```scala
 val audioSystem: IAudioSystem = _
 
 val reader = audioSystem get ".wav"
@@ -103,7 +103,7 @@ val passOrFailed = reader.foldLeft(reader){ (R, is) => R flatMap { _(is) }}
 // Note: These resulting readers are actually holding streams.length input streams behind the scenes.
 // Make sure that these resulting readers are eventually closed. 
 // Calling the 'copyTo' method from the reader will consume all of the streams and sequentially close them.
-
+```
 
 
 
