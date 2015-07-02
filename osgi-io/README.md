@@ -102,7 +102,7 @@ Availability - This service does not guarantee availablility to the file system.
 This service guarantees atomic operations with the file system. All failable expressions are lifted to Try expressions to ensure that program flow does not break. If a node is read from a bucket, the IO service will ensure that the entire object is read before returning the result to the user. Another example might be reading the content from a node - In this case, the entirety of the content will be read and a byte stream will be constructed and returned to the user to ensure that no network issues will arrise after the function has returned. 
 
 ### Example
-
+```scala
 // Get the service.
 val fs: ILocalFileSystem
 
@@ -140,7 +140,7 @@ val s3EndPoint: String = ""
 val s3fs = fs.getS3(accessKey, secretKey, s3EndPoint)
 
 // In the event of failure, keep a handle on the local file system.
-
+```
 
 
 
