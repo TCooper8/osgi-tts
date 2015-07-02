@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::IO::Features</name>
+    <name>Cooper::IO::Features</name>
     <artifactId>io-features</artifactId>
 
     <dependencies>

@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Tracking::Features</name>
+    <name>Cooper::Tracking::Features</name>
     <artifactId>tracking-features</artifactId>
 
     <dependencies>

@@ -38,7 +38,7 @@ Os: Mac OSX 10.8.5 - x86_64
 		 	osgi.service.blueprint.compname = localFileSystem
 		 	service.id = _
 		Provided by : 
-		 	***REMOVED***::IO::Service (_)
+		 	Cooper::IO::Service (_)
 		Used by: 
 		 	...
 

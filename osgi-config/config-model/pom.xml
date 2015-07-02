@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Config::Model</name>
+    <name>Cooper::Config::Model</name>
     <artifactId>config-model</artifactId>
     <packaging>bundle</packaging>
 

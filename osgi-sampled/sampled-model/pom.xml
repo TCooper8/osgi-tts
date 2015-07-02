@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Sampled::Model</name>
+    <name>Cooper::Sampled::Model</name>
     <artifactId>sampled-model</artifactId>
     <packaging>bundle</packaging>
 

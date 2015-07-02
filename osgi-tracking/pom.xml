@@ -16,7 +16,7 @@
         <module>tracking-features</module>
     </modules>
 
-    <name>***REMOVED***::Tracking</name>
+    <name>Cooper::Tracking</name>
     <artifactId>tracking</artifactId>
     <packaging>pom</packaging>
 

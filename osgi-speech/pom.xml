@@ -16,7 +16,7 @@
         <module>speech-features</module>
     </modules>
 
-    <name>***REMOVED***::Speech</name>
+    <name>Cooper::Speech</name>
     <artifactId>speech</artifactId>
     <packaging>pom</packaging>
 

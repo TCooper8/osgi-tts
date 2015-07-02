@@ -16,7 +16,7 @@
         <module>io-features</module>
     </modules>
 
-    <name>***REMOVED***::IO</name>
+    <name>Cooper::IO</name>
     <artifactId>io</artifactId>
     <packaging>pom</packaging>
 

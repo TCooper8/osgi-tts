@@ -16,7 +16,7 @@
         <module>sampled-features</module>
     </modules>
 
-    <name>***REMOVED***::Sampled</name>
+    <name>Cooper::Sampled</name>
     <artifactId>sampled</artifactId>
     <packaging>pom</packaging>
 

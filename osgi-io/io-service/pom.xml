@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::IO::Service</name>
+    <name>Cooper::IO::Service</name>
     <artifactId>io-service</artifactId>
     <packaging>bundle</packaging>
 

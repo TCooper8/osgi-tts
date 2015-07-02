@@ -1,5 +1,5 @@
 package com.cooper.osgi.sampled.service
 
 object Constants {
-	val trackerKey = "***REMOVED***"
+	val trackerKey = "Cooper"
 }

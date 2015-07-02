@@ -366,7 +366,7 @@ class TtsProxyServlet(
 			config.checkValid(ConfigFactory.defaultReference(loader), "akka")
 			config
 		}
-		ActorSystem("Com***REMOVED***SpeechService", config, loader)
+		ActorSystem("ComCooperSpeechService", config, loader)
 	}
 
 	private[this] val speechSuccess = "StaticTranslation:Good"

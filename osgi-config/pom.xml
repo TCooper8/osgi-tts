@@ -16,7 +16,7 @@
         <module>config-features</module>
     </modules>
 
-    <name>***REMOVED***::Config</name>
+    <name>Cooper::Config</name>
     <artifactId>config</artifactId>
     <packaging>pom</packaging>
 

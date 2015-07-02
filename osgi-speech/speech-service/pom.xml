@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Speech::Service</name>
+    <name>Cooper::Speech::Service</name>
     <artifactId>speech-service</artifactId>
     <packaging>bundle</packaging>
 

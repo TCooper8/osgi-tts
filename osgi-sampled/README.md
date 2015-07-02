@@ -33,7 +33,7 @@ Os: Mac OSX 10.8.5 - x86_64
 		 	osgi.service.blueprint.compname = audioSystem
 		 	service.id = _
 		Provided by : 
-		 	***REMOVED***::Sampled::Service (_)
+		 	Cooper::Sampled::Service (_)
 		Used by: 
 		 	...
 

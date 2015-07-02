@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Tracking::Model</name>
+    <name>Cooper::Tracking::Model</name>
     <artifactId>tracking-model</artifactId>
     <packaging>bundle</packaging>
 

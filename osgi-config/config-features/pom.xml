@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Config::Features</name>
+    <name>Cooper::Config::Features</name>
     <artifactId>config-features</artifactId>
 
     <dependencies>

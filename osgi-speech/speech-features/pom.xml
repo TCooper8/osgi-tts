@@ -10,7 +10,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <name>***REMOVED***::Speech::Features</name>
+    <name>Cooper::Speech::Features</name>
     <artifactId>speech-features</artifactId>
 
     <dependencies>
