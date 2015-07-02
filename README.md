@@ -110,7 +110,7 @@ The setup will load a default configuration into the ZooKeeper instance once it 
 
 The configuration root be default to the local host name.
 The configuration is structured as follows.
-
+```scala
 'localHostName' {
 	fileSystemType = "local" <- Expects String of "s3" | "local"
 	s3SecretKey = "" <- Expects String, only if s3 is used.
@@ -151,6 +151,7 @@ The configuration is structured as follows.
 		engineB { /* Engine configuration */ }
 	}
 }
+```
 
 ### Warning
 
