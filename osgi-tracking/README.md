@@ -24,7 +24,7 @@ The model is just a map of String -> Long.
 ## Usage
 
 ### Example
-
+```scala
 case class Service(key: String, trackerService: ITrackerService) {
 	val tracker = trackerService.getTracker(key)
 
@@ -35,3 +35,4 @@ case class Service(key: String, trackerService: ITrackerService) {
 		case _ => tracker.put("UnknownMsg", 1)
 	}
 }
+```
